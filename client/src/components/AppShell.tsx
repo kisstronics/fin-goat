@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../auth';
 import { useTheme } from '../theme';
+import { SiteFooter } from './SiteFooter';
 
 function userInitials(name?: string, email?: string) {
   const trimmed = (name || '').trim();
@@ -40,25 +41,6 @@ const USER_LINKS = [
   { to: '/screeners', label: 'Screeners' },
   { to: '/settings', label: 'Settings' },
 ];
-
-function SiteFooter({ onNavigate }: { onNavigate?: () => void }) {
-  return (
-    <footer className="site-footer app-footer">
-      <nav className="footer-links" aria-label="Site">
-        <Link className="footer-link" to="/about" onClick={onNavigate}>
-          Who we are
-        </Link>
-        <Link className="footer-link" to="/privacy" onClick={onNavigate}>
-          Privacy policy
-        </Link>
-        <Link className="footer-link" to="/contact" onClick={onNavigate}>
-          Contact us
-        </Link>
-      </nav>
-      <p className="footer-copy">Knics@2026</p>
-    </footer>
-  );
-}
 
 export function AppShell({
   children,

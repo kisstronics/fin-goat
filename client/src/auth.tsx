@@ -13,6 +13,7 @@ import type { User } from './types';
 interface AuthContextValue {
   user: User | null;
   loading: boolean;
+  statusReady: boolean;
   googleEnabled: boolean;
   allowDevLogin: boolean;
   loginDev: (emailOrName: string) => Promise<void>;
@@ -26,8 +27,9 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [statusReady, setStatusReady] = useState(false);
   const [googleEnabled, setGoogleEnabled] = useState(false);
-  const [allowDevLogin, setAllowDevLogin] = useState(true);
+  const [allowDevLogin, setAllowDevLogin] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -49,7 +51,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })
       .catch(() => {
         setGoogleEnabled(false);
-        setAllowDevLogin(true);
+        setAllowDevLogin(false);
+      })
+      .finally(() => {
+        setStatusReady(true);
       });
     void refresh();
   }, [refresh]);
@@ -76,6 +81,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => ({
       user,
       loading,
+      statusReady,
       googleEnabled,
       allowDevLogin,
       loginDev,
@@ -86,6 +92,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [
       user,
       loading,
+      statusReady,
       googleEnabled,
       allowDevLogin,
       loginDev,

@@ -461,6 +461,20 @@ a {
   width: 100%;
 }
 
+.login-page .login-panel {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  margin: 0 auto;
+  max-width: min(440px, 100%);
+}
+
+.login-page .site-footer {
+  flex-shrink: 0;
+  margin-top: auto;
+}
+
 .login-theme-toggle {
   position: absolute;
   top: max(0.75rem, env(safe-area-inset-top));
