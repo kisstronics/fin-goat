@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Navigate, useSearchParams } from 'react-router-dom';
 import { api, googleLoginUrl } from '../api';
 import { useAuth } from '../auth';
+import { SiteFooter } from '../components/SiteFooter';
 import { useTheme } from '../theme';
 
 export function LoginPage() {
@@ -47,10 +48,11 @@ export function LoginPage() {
 
   if (loading || !statusReady) {
     return (
-      <div className="mobile-shell">
-        <div className="app-main center">
+      <div className="mobile-shell login-page">
+        <div className="login-panel app-main center">
           <p>Signing you in…</p>
         </div>
+        <SiteFooter />
       </div>
     );
   }
@@ -146,6 +148,7 @@ export function LoginPage() {
           </p>
         )}
       </div>
+      <SiteFooter />
     </div>
   );
 }

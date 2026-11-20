@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../auth';
 import { AppShell } from './AppShell';
+import { SiteFooter } from './SiteFooter';
 
 function PublicInfoShell({
   children,
@@ -19,20 +20,7 @@ function PublicInfoShell({
         <p className="public-info-title">{title}</p>
       </header>
       <main className="app-main">{children}</main>
-      <footer className="site-footer app-footer">
-        <nav className="footer-links" aria-label="Site">
-          <Link className="footer-link" to="/about">
-            Who we are
-          </Link>
-          <Link className="footer-link" to="/privacy">
-            Privacy policy
-          </Link>
-          <Link className="footer-link" to="/contact">
-            Contact us
-          </Link>
-        </nav>
-        <p className="footer-copy">Knics@2026</p>
-      </footer>
+      <SiteFooter />
     </div>
   );
 }
