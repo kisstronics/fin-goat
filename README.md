@@ -31,6 +31,13 @@ On first boot the server creates tables and seeds demo users, tickers, and holdi
 
 Example: `VITE_API_URL=https://api.example.com`
 
+### Vercel (client)
+
+- Root directory: `client` (or deploy from `client/`)
+- Build: `npm run build` · Output: `dist`
+- `vercel.json` rewrites SPA routes (`/login`, `/about`, …) to `index.html`
+- Set **`VITE_API_URL`** in Vercel env to your public API base URL (required in production; empty only works with the local Vite proxy)
+
 - App: http://localhost:5174  
 - API: http://localhost:3003  
 
