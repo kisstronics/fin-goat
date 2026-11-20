@@ -15,12 +15,21 @@ Mobile chrome matches the claw-bot / between pattern (phone-first column, hambur
 
 ```bash
 cd fin-goat
-cp .env.example .env   # set DATABASE_URL
+cp .env.example .env          # set DATABASE_URL
+cp client/.env.example client/.env   # optional VITE_API_URL
 npm install
 npm run dev
 ```
 
 On first boot the server creates tables and seeds demo users, tickers, and holdings.
+
+### Client env
+
+| Variable | Purpose |
+|---|---|
+| `VITE_API_URL` | Backend base URL (no trailing slash). Empty = same-origin / Vite proxy in local dev. |
+
+Example: `VITE_API_URL=https://api.example.com`
 
 - App: http://localhost:5174  
 - API: http://localhost:3003  

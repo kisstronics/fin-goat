@@ -14,6 +14,17 @@ import type {
 
 const TOKEN_KEY = 'fg_token';
 
+/** Empty = same-origin (Vite proxies /api and /auth → Nest in local dev). */
+const API_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(
+  /\/$/,
+  '',
+) ?? '';
+
+function apiUrl(path: string) {
+  if (!path.startsWith('/')) return `${API_URL}/${path}`;
+  return `${API_URL}${path}`;
+}
+
 export function getToken(): string | null {
   try {
     return localStorage.getItem(TOKEN_KEY);
@@ -43,7 +54,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const res = await fetch(path, {
+  const res = await fetch(apiUrl(path), {
     credentials: 'include',
     ...init,
     headers,
@@ -55,7 +66,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export const googleLoginUrl = '/auth/google';
+export const googleLoginUrl = apiUrl('/auth/google');
 
 export const api = {
   me: () => request<User>('/auth/me'),
