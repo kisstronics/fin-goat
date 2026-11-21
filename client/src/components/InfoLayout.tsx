@@ -14,8 +14,8 @@ function PublicInfoShell({
   return (
     <div className="mobile-shell public-info-shell">
       <header className="public-info-header">
-        <Link to="/login" className="ghost-link">
-          Back to sign in
+        <Link to="/" className="ghost-link">
+          Back to home
         </Link>
         <p className="public-info-title">{title}</p>
       </header>

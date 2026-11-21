@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Navigate, useSearchParams } from 'react-router-dom';
+import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import { api, googleLoginUrl } from '../api';
 import { useAuth } from '../auth';
 import { SiteFooter } from '../components/SiteFooter';
@@ -86,6 +86,9 @@ export function LoginPage() {
         {theme === 'light' ? '☾' : '☀'}
       </button>
       <div className="login-panel app-main">
+        <Link to="/" className="ghost-link login-back">
+          Back to home
+        </Link>
         <p className="brand">Fin Goat</p>
         <h1>All investments in one glance</h1>
         <p className="lede">
