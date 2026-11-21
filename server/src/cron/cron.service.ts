@@ -4,6 +4,7 @@ import { v4 as uuid } from 'uuid';
 import { MarketService } from '../market/market.service';
 import { ScreenersService } from '../screeners/screeners.service';
 import { StoreService } from '../store/store.service';
+import type { CronJobKey } from '../store/types';
 
 @Injectable()
 export class CronJobsService implements OnModuleInit {
@@ -35,14 +36,24 @@ export class CronJobsService implements OnModuleInit {
     return this.store.finishCronRun(id, status, detail);
   }
 
+  private async guard(job: CronJobKey, label: string): Promise<boolean> {
+    const enabled = await this.store.isCronJobEnabled(job);
+    if (!enabled) {
+      this.logger.debug(`Skipping ${label} — disabled in Admin → Cron`);
+    }
+    return enabled;
+  }
+
   @Cron(CronExpression.EVERY_10_MINUTES)
-  handleScreenerCron() {
+  async handleScreenerCron() {
+    if (!(await this.guard('screener_10m', 'cron:every-10m'))) return;
     void this.runScreenerJob('cron:every-10m');
   }
 
   /** Pull LTP + SMAs from Yahoo Finance chart API every hour. */
   @Cron(CronExpression.EVERY_HOUR)
   async handlePriceRefresh() {
+    if (!(await this.guard('price_refresh', 'yahoo-ltp-refresh'))) return;
     if (this.priceRefreshRunning) {
       this.logger.warn('Skipping price refresh — previous run still in progress');
       return;
@@ -69,6 +80,7 @@ export class CronJobsService implements OnModuleInit {
 
   @Cron(CronExpression.EVERY_DAY_AT_8AM)
   async handleDailyDigest() {
+    if (!(await this.guard('daily_digest', 'daily-digest'))) return;
     const run = await this.startRun('daily-digest');
     try {
       const results = await this.store.listScreenerResults();

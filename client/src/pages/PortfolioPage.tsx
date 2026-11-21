@@ -38,6 +38,7 @@ export function PortfolioPage() {
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [error, setError] = useState('');
   const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [entryKind, setEntryKind] = useState<'investment' | 'loan'>('investment');
   const [form, setForm] = useState({
     assetType: 'mutual_fund' as AssetType,
@@ -72,6 +73,7 @@ export function PortfolioPage() {
 
   function resetForm(kind: 'investment' | 'loan' = 'investment') {
     setEntryKind(kind);
+    setEditingId(null);
     setForm({
       assetType: kind === 'loan' ? 'loan' : 'mutual_fund',
       loanType: 'home',
@@ -83,19 +85,38 @@ export function PortfolioPage() {
     });
   }
 
-  async function onCreate(e: FormEvent) {
+  function startEdit(h: Holding) {
+    const liability = isLiabilityHolding(h);
+    const loanType =
+      typeof h.meta?.loanType === 'string' &&
+      LOAN_TYPES.includes(h.meta.loanType as LoanType)
+        ? (h.meta.loanType as LoanType)
+        : 'other';
+    setEntryKind(liability ? 'loan' : 'investment');
+    setEditingId(h.id);
+    setShowForm(true);
+    setForm({
+      assetType: liability ? 'loan' : h.assetType,
+      loanType,
+      name: h.name,
+      investedValue: String(h.investedValue || ''),
+      currentValue: String(Math.abs(h.currentValue) || ''),
+      emi: h.meta?.emi != null ? String(h.meta.emi) : '',
+      rate: h.meta?.rate != null ? String(h.meta.rate) : '',
+    });
+  }
+
+  async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError('');
     try {
       const isLoan = entryKind === 'loan' || form.assetType === 'loan';
       const outstanding = Math.abs(Number(form.currentValue) || 0);
       const invested = Number(form.investedValue) || 0;
-
-      await api.createHolding({
-        assetType: isLoan ? 'loan' : form.assetType,
+      const payload = {
+        assetType: (isLoan ? 'loan' : form.assetType) as AssetType,
         name: form.name,
-        // Loans are liabilities: store outstanding as negative.
-        investedValue: isLoan ? invested : invested,
+        investedValue: invested,
         currentValue: isLoan ? -outstanding : Number(form.currentValue) || 0,
         notes: isLoan ? 'Liability' : undefined,
         meta: isLoan
@@ -109,7 +130,13 @@ export function PortfolioPage() {
                 ...(form.rate ? { rate: Number(form.rate) } : {}),
               }
             : undefined,
-      });
+      };
+
+      if (editingId) {
+        await api.updateHolding(editingId, payload);
+      } else {
+        await api.createHolding(payload);
+      }
       resetForm(entryKind);
       setShowForm(false);
       await load();
@@ -120,6 +147,10 @@ export function PortfolioPage() {
 
   async function onDelete(id: string) {
     await api.deleteHolding(id);
+    if (editingId === id) {
+      resetForm();
+      setShowForm(false);
+    }
     await load();
   }
 
@@ -167,6 +198,9 @@ export function PortfolioPage() {
           )}
           {h.meta?.rate != null && <span>Rate {String(h.meta.rate)}%</span>}
           {h.quantity != null && <span>Qty {h.quantity}</span>}
+          <button type="button" className="linkish" onClick={() => startEdit(h)}>
+            Edit
+          </button>
           <button
             type="button"
             className="linkish"
@@ -215,7 +249,10 @@ export function PortfolioPage() {
           <button
             type="button"
             className="btn secondary"
-            onClick={() => setShowForm(false)}
+            onClick={() => {
+              setShowForm(false);
+              resetForm();
+            }}
           >
             Cancel
           </button>
@@ -223,19 +260,36 @@ export function PortfolioPage() {
       </div>
 
       {showForm && (
-        <form className="panel-block form-grid" onSubmit={(e) => void onCreate(e)}>
+        <form className="panel-block form-grid" onSubmit={(e) => void onSubmit(e)}>
+          <h2>{editingId ? 'Edit entry' : 'New entry'}</h2>
           <div className="chip-row">
             <button
               type="button"
               className={`chip${entryKind === 'investment' ? ' active' : ''}`}
-              onClick={() => resetForm('investment')}
+              onClick={() => {
+                if (editingId) {
+                  setEntryKind('investment');
+                  setForm((f) => ({ ...f, assetType: 'mutual_fund' }));
+                } else {
+                  resetForm('investment');
+                  setShowForm(true);
+                }
+              }}
             >
               Investment
             </button>
             <button
               type="button"
               className={`chip${entryKind === 'loan' ? ' active' : ''}`}
-              onClick={() => resetForm('loan')}
+              onClick={() => {
+                if (editingId) {
+                  setEntryKind('loan');
+                  setForm((f) => ({ ...f, assetType: 'loan' }));
+                } else {
+                  resetForm('loan');
+                  setShowForm(true);
+                }
+              }}
             >
               Loan (liability)
             </button>
@@ -374,7 +428,11 @@ export function PortfolioPage() {
           )}
 
           <button className="btn primary" type="submit">
-            {entryKind === 'loan' ? 'Save loan' : 'Save investment'}
+            {editingId
+              ? 'Update'
+              : entryKind === 'loan'
+                ? 'Save loan'
+                : 'Save investment'}
           </button>
         </form>
       )}

@@ -76,6 +76,48 @@ export interface DashboardData {
   updatedAt: string;
 }
 
+export type RecurringKind = 'income' | 'expense';
+export type RecurringFrequency = 'monthly' | 'yearly';
+
+export interface RecurringItem {
+  id: string;
+  userId: string;
+  kind: RecurringKind;
+  name: string;
+  category: string;
+  amount: number;
+  frequency: RecurringFrequency;
+  dayOfMonth?: number;
+  notes?: string;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RecurringSummary {
+  items: RecurringItem[];
+  monthlyIncome: number;
+  monthlyExpenses: number;
+  monthlySurplus: number;
+}
+
+export interface NetWorthProjection {
+  asOf: string;
+  targetMonth: number;
+  targetYear: number;
+  monthsAhead: number;
+  currentNetWorth: number;
+  projectedNetWorth: number;
+  projectedAssets: number;
+  projectedLiabilities: number;
+  monthlyIncome: number;
+  monthlyExpenses: number;
+  monthlyEmi: number;
+  monthlySip: number;
+  monthlySurplus: number;
+  breakdown: { label: string; amount: number }[];
+}
+
 export interface Ticker {
   id: string;
   crn: string;
@@ -137,4 +179,22 @@ export interface CronRun {
   finishedAt?: string;
   status: 'running' | 'ok' | 'error';
   detail?: string;
+}
+
+export type CronJobKey =
+  | 'screener_10m'
+  | 'price_refresh'
+  | 'daily_digest';
+
+export interface CronJobSetting {
+  key: CronJobKey;
+  name: string;
+  schedule: string;
+  description: string;
+  enabled: boolean;
+}
+
+export interface CronSettings {
+  masterEnabled: boolean;
+  jobs: CronJobSetting[];
 }

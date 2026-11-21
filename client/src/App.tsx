@@ -10,6 +10,7 @@ import { HomePage } from './pages/HomePage';
 import { LoginPage } from './pages/LoginPage';
 import { PortfolioPage } from './pages/PortfolioPage';
 import { PrivacyPage } from './pages/PrivacyPage';
+import { RecurringPage } from './pages/RecurringPage';
 import { ScreenersPage } from './pages/ScreenersPage';
 import { SettingsPage } from './pages/SettingsPage';
 
@@ -76,6 +77,14 @@ export default function App() {
         element={
           <Protected>
             <ScreenersPage />
+          </Protected>
+        }
+      />
+      <Route
+        path="/recurring"
+        element={
+          <Protected>
+            <RecurringPage />
           </Protected>
         }
       />

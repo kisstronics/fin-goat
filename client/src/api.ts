@@ -1,10 +1,15 @@
 import type {
   AlertLog,
+  CronJobKey,
   CronRun,
+  CronSettings,
   DashboardData,
   FeatureFlag,
   Holding,
+  NetWorthProjection,
   Plan,
+  RecurringItem,
+  RecurringSummary,
   ScreenerDef,
   ScreenerKey,
   ScreenerResultRow,
@@ -86,6 +91,10 @@ export const api = {
   logout: () => request<{ ok: boolean }>('/auth/logout', { method: 'POST' }),
 
   dashboard: () => request<DashboardData>('/api/portfolio/dashboard'),
+  projectNetWorth: (month: number, year: number) =>
+    request<NetWorthProjection>(
+      `/api/portfolio/projection?month=${month}&year=${year}`,
+    ),
   holdings: () => request<Holding[]>('/api/portfolio'),
   createHolding: (
     body: Partial<Holding> & {
@@ -101,8 +110,43 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+  updateHolding: (
+    id: string,
+    body: Partial<Holding> & {
+      assetType?: string;
+      name?: string;
+      currentValue?: number;
+      investedValue?: number;
+      notes?: string;
+      meta?: Record<string, string | number | boolean>;
+    },
+  ) =>
+    request<Holding>(`/api/portfolio/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
   deleteHolding: (id: string) =>
     request<{ ok: boolean }>(`/api/portfolio/${id}`, { method: 'DELETE' }),
+
+  recurring: () => request<RecurringSummary>('/api/recurring'),
+  createRecurring: (
+    body: Partial<RecurringItem> & {
+      kind: string;
+      name: string;
+      amount: number;
+    },
+  ) =>
+    request<RecurringItem>('/api/recurring', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  updateRecurring: (id: string, body: Partial<RecurringItem>) =>
+    request<RecurringItem>(`/api/recurring/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  deleteRecurring: (id: string) =>
+    request<{ ok: boolean }>(`/api/recurring/${id}`, { method: 'DELETE' }),
 
   screeners: () => request<ScreenerDef[]>('/api/screeners'),
   screenerResults: (key?: ScreenerKey) =>
@@ -201,6 +245,15 @@ export const api = {
       body: JSON.stringify(body),
     }),
   cronRuns: () => request<CronRun[]>('/api/admin/cron-runs'),
+  cronSettings: () => request<CronSettings>('/api/admin/cron-settings'),
+  updateCronSettings: (body: {
+    masterEnabled?: boolean;
+    jobs?: Partial<Record<CronJobKey, boolean>>;
+  }) =>
+    request<CronSettings>('/api/admin/cron-settings', {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
   adminAppSettings: () =>
     request<{
       google: {

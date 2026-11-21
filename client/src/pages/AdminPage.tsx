@@ -1,6 +1,14 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { api } from '../api';
-import type { CronRun, FeatureFlag, Plan, Ticker, User } from '../types';
+import type {
+  CronJobKey,
+  CronRun,
+  CronSettings,
+  FeatureFlag,
+  Plan,
+  Ticker,
+  User,
+} from '../types';
 
 type Tab =
   | 'overview'
@@ -46,6 +54,8 @@ export function AdminPage() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [features, setFeatures] = useState<FeatureFlag[]>([]);
   const [cronRuns, setCronRuns] = useState<CronRun[]>([]);
+  const [cronSettings, setCronSettings] = useState<CronSettings | null>(null);
+  const [cronBusy, setCronBusy] = useState(false);
   const [googleForm, setGoogleForm] = useState<GoogleForm | null>(null);
   const [telegramForm, setTelegramForm] = useState<TelegramForm | null>(null);
   const [testPhone, setTestPhone] = useState('');
@@ -61,13 +71,14 @@ export function AdminPage() {
   useEffect(() => {
     void (async () => {
       try {
-        const [ov, u, t, p, f, c, settings] = await Promise.all([
+        const [ov, u, t, p, f, c, cronCfg, settings] = await Promise.all([
           api.adminOverview(),
           api.adminUsers(),
           api.adminTickers(),
           api.adminPlans(),
           api.adminFeatures(),
           api.cronRuns(),
+          api.cronSettings(),
           api.adminAppSettings(),
         ]);
         setOverview(ov);
@@ -76,6 +87,7 @@ export function AdminPage() {
         setPlans(p);
         setFeatures(f);
         setCronRuns(c);
+        setCronSettings(cronCfg);
         setGoogleForm({
           enabled: settings.google.enabled,
           clientId: settings.google.clientId,
@@ -201,6 +213,40 @@ export function AdminPage() {
       setError(
         err instanceof Error ? err.message : 'Could not save Telegram settings',
       );
+    }
+  }
+
+  async function toggleCronMaster() {
+    if (!cronSettings) return;
+    setCronBusy(true);
+    setError('');
+    try {
+      const next = await api.updateCronSettings({
+        masterEnabled: !cronSettings.masterEnabled,
+      });
+      setCronSettings(next);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not update cron');
+    } finally {
+      setCronBusy(false);
+    }
+  }
+
+  async function toggleCronJob(key: CronJobKey) {
+    if (!cronSettings) return;
+    const current = cronSettings.jobs.find((j) => j.key === key);
+    if (!current) return;
+    setCronBusy(true);
+    setError('');
+    try {
+      const next = await api.updateCronSettings({
+        jobs: { [key]: !current.enabled },
+      });
+      setCronSettings(next);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not update cron');
+    } finally {
+      setCronBusy(false);
     }
   }
 
@@ -606,24 +652,96 @@ export function AdminPage() {
       )}
 
       {tab === 'cron' && (
-        <ul className="holding-list">
-          {cronRuns.map((run) => (
-            <li key={run.id} className="holding-card">
-              <div className="holding-main">
-                <div>
-                  <h3>{run.job}</h3>
-                  <p className="muted tiny">
-                    {new Date(run.startedAt).toLocaleString('en-IN')}
-                  </p>
+        <div className="page-stack">
+          {cronSettings && (
+            <section className="panel-block">
+              <h2>Cron controls</h2>
+              <p className="muted">
+                Turn scheduled jobs on or off. Manual ticker sync / price refresh
+                from the Tickers tab still work when crons are off.
+              </p>
+
+              <div className="holding-card" style={{ marginBottom: 12 }}>
+                <div className="holding-main">
+                  <div>
+                    <h3>All scheduled jobs</h3>
+                    <p className="muted tiny">
+                      Master switch — disables every cron below when off.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className={`btn ${cronSettings.masterEnabled ? 'primary' : 'secondary'}`}
+                    disabled={cronBusy}
+                    onClick={() => void toggleCronMaster()}
+                  >
+                    {cronSettings.masterEnabled ? 'On' : 'Off'}
+                  </button>
                 </div>
-                <strong className={run.status === 'error' ? 'negative' : 'positive'}>
-                  {run.status}
-                </strong>
               </div>
-              {run.detail && <p className="tiny">{run.detail}</p>}
-            </li>
-          ))}
-        </ul>
+
+              <ul className="holding-list">
+                {cronSettings.jobs.map((job) => {
+                  const effective =
+                    cronSettings.masterEnabled && job.enabled;
+                  return (
+                    <li key={job.key} className="holding-card">
+                      <div className="holding-main">
+                        <div>
+                          <h3>{job.name}</h3>
+                          <p className="muted tiny">{job.schedule}</p>
+                          <p className="tiny">{job.description}</p>
+                          {!cronSettings.masterEnabled && job.enabled && (
+                            <p className="muted tiny">
+                              Enabled, but blocked by master switch.
+                            </p>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          className={`btn ${effective ? 'primary' : 'secondary'}`}
+                          disabled={cronBusy}
+                          onClick={() => void toggleCronJob(job.key)}
+                        >
+                          {job.enabled ? 'On' : 'Off'}
+                        </button>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          )}
+
+          <section className="panel-block">
+            <h2>Recent runs</h2>
+            <ul className="holding-list">
+              {cronRuns.length === 0 && (
+                <li className="muted">No cron runs logged yet</li>
+              )}
+              {cronRuns.map((run) => (
+                <li key={run.id} className="holding-card">
+                  <div className="holding-main">
+                    <div>
+                      <h3>{run.job}</h3>
+                      <p className="muted tiny">
+                        {new Date(run.startedAt).toLocaleString('en-IN')}
+                      </p>
+                    </div>
+                    <strong
+                      className={
+                        run.status === 'error' ? 'negative' : 'positive'
+                      }
+                    >
+                      {run.status}
+                    </strong>
+                  </div>
+                  {run.detail && <p className="tiny">{run.detail}</p>}
+                </li>
+              ))}
+            </ul>
+          </section>
+        </div>
       )}
     </div>
   );

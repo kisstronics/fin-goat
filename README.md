@@ -91,8 +91,9 @@ Seed via `TELEGRAM_*` env vars on first boot, or edit anytime in the admin panel
 ### User
 
 - **Dashboard** — net worth, allocation, returns, action center
-- **My Portfolio** — stocks, MFs, EPFO, FD, gold, real estate, cash lending, loans
-- **Screeners**
+- **My Portfolio** — stocks, MFs, EPFO, FD, gold, real estate, cash lending, loans (create/edit/delete)
+- **Recurring** — regular income & expenses, net-worth projection by future month/year
+- **Screeners** — paginated, sortable, filterable stock matches
   - Golden Cross Over
   - Near 52 Week Low
   - Above 50% recovery from 52W low
@@ -104,7 +105,7 @@ Seed via `TELEGRAM_*` env vars on first boot, or edit anytime in the admin panel
 - Stock ticker management (CRN + NSE/BSE params)
 - Plans
 - Features (feature flags)
-- Cron run history
+- Cron run history + on/off controls (master + per job)
 
 ## Product notes
 
@@ -122,6 +123,7 @@ Screeners are analytical tools — not buy/sell recommendations.
     - Golden Cross Over
     - Near 52 Week Low
     - Above 50% low from 52W High
+  - Cron (master + per-job on/off, run history)
 - User
   - Settings (Plans, Email, Telegram, phone)
   - My Portfolio
