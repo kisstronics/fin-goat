@@ -453,6 +453,89 @@ a {
   color: var(--accent);
 }
 
+.home-shell {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  min-height: 100dvh;
+  width: 100%;
+}
+
+.home-page {
+  flex: 1;
+  width: min(640px, 100%);
+  margin: 0 auto;
+  padding: 2.4rem 1.35rem 2rem;
+  display: grid;
+  gap: 2.5rem;
+}
+
+.home-hero {
+  padding-top: 1.25rem;
+  animation: rise 0.7s ease both;
+}
+
+.home-hero h1 {
+  margin: 0.65rem 0 0.5rem;
+  font-size: clamp(1.5rem, 5vw, 2rem);
+  line-height: 1.15;
+}
+
+.home-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.35rem;
+}
+
+.home-features h2,
+.home-close h2 {
+  margin: 0.35rem 0 0.85rem;
+  font-size: clamp(1.25rem, 3.5vw, 1.55rem);
+  line-height: 1.2;
+}
+
+.feature-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.85rem;
+}
+
+.feature-item {
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+.feature-item h3 {
+  margin: 0 0 0.35rem;
+  font-family: 'Outfit', sans-serif;
+  font-size: 1.05rem;
+  font-weight: 650;
+}
+
+.feature-item p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.home-disclaimer {
+  margin: 1rem 0 0;
+  font-size: 0.9rem;
+}
+
+.home-close {
+  padding: 0.5rem 0 1.5rem;
+}
+
+.home-close .btn {
+  margin-top: 0.85rem;
+}
+
 .login-page {
   display: flex;
   flex-direction: column;
@@ -491,6 +574,11 @@ a {
   border: 1px solid var(--line);
   box-shadow: 0 24px 60px var(--shadow);
   animation: rise 0.7s ease both;
+}
+
+.login-back {
+  display: inline-block;
+  margin-bottom: 0.85rem;
 }
 
 .brand {
