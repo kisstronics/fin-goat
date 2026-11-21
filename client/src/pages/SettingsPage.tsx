@@ -3,12 +3,21 @@ import { api } from '../api';
 import { useAuth } from '../auth';
 import type { AlertLog, Plan, PlanId, User } from '../types';
 
+type TelegramInfo = {
+  enabled: boolean;
+  botUsername: string;
+  linked: boolean;
+};
+
 export function SettingsPage() {
   const { refresh } = useAuth();
   const [user, setUser] = useState<User | null>(null);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [alerts, setAlerts] = useState<AlertLog[]>([]);
+  const [telegram, setTelegram] = useState<TelegramInfo | null>(null);
   const [saved, setSaved] = useState(false);
+  const [testNote, setTestNote] = useState('');
+  const [testBusy, setTestBusy] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -16,6 +25,7 @@ export function SettingsPage() {
       .then(([settings, alertRows]) => {
         setUser(settings.user);
         setPlans(settings.plans);
+        setTelegram(settings.telegram);
         setAlerts(alertRows);
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'Failed'));
@@ -25,17 +35,18 @@ export function SettingsPage() {
     e.preventDefault();
     if (!user) return;
     setSaved(false);
+    setError('');
     try {
       const next = await api.updateSettings({
         name: user.name,
         phone: user.phone,
-        telegramChatId: user.telegramChatId,
         notifyEmail: user.notifyEmail,
         notifyTelegram: user.notifyTelegram,
         planId: user.planId,
       });
       setUser(next.user);
       setPlans(next.plans);
+      setTelegram(next.telegram);
       await refresh();
       setSaved(true);
     } catch (err) {
@@ -43,7 +54,28 @@ export function SettingsPage() {
     }
   }
 
+  async function onSendTest() {
+    setTestBusy(true);
+    setTestNote('');
+    setError('');
+    try {
+      const result = await api.sendTelegramTest();
+      setTestNote(result.message);
+      const settings = await api.settings();
+      setUser(settings.user);
+      setTelegram(settings.telegram);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Test send failed');
+    } finally {
+      setTestBusy(false);
+    }
+  }
+
   if (!user) return <p className="muted">Loading settings…</p>;
+
+  const botUrl = telegram?.botUsername
+    ? `https://t.me/${telegram.botUsername}`
+    : null;
 
   return (
     <div className="page-stack">
@@ -61,22 +93,53 @@ export function SettingsPage() {
           />
         </label>
         <label>
-          Phone (Telegram)
+          Telegram phone
           <input
             value={user.phone || ''}
             onChange={(e) => setUser({ ...user, phone: e.target.value })}
             placeholder="+91…"
           />
         </label>
-        <label>
-          Telegram chat ID
-          <input
-            value={user.telegramChatId || ''}
-            onChange={(e) =>
-              setUser({ ...user, telegramChatId: e.target.value })
-            }
-          />
-        </label>
+
+        <div className="panel-note">
+          <p>
+            Status:{' '}
+            <strong>
+              {telegram?.linked
+                ? 'Telegram linked'
+                : 'Not linked — send hi to the bot'}
+            </strong>
+          </p>
+          <ol className="tiny muted">
+            <li>Save your Telegram phone number here (with country code).</li>
+            <li>
+              Open{' '}
+              {botUrl ? (
+                <a href={botUrl} target="_blank" rel="noreferrer">
+                  @{telegram?.botUsername}
+                </a>
+              ) : (
+                'the Fin Goat Telegram bot'
+              )}{' '}
+              and send <code>hi</code>.
+            </li>
+            <li>Share the same phone number when the bot asks.</li>
+          </ol>
+          {!telegram?.enabled && (
+            <p className="muted tiny">
+              Telegram bot is not configured yet. Ask an admin to set the token.
+            </p>
+          )}
+          <button
+            type="button"
+            className="btn secondary"
+            disabled={!telegram?.linked || testBusy}
+            onClick={() => void onSendTest()}
+          >
+            {testBusy ? 'Sending…' : 'Send test message'}
+          </button>
+          {testNote && <p className="positive tiny">{testNote}</p>}
+        </div>
 
         <fieldset className="toggle-set">
           <legend>Notifications</legend>
@@ -144,7 +207,9 @@ export function SettingsPage() {
               <strong>
                 [{a.channel}] {a.title}
               </strong>
-              <p className="muted tiny">{new Date(a.createdAt).toLocaleString('en-IN')}</p>
+              <p className="muted tiny">
+                {new Date(a.createdAt).toLocaleString('en-IN')} · {a.status}
+              </p>
               <pre className="alert-body">{a.body}</pre>
             </li>
           ))}

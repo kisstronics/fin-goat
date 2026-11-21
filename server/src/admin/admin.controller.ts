@@ -93,8 +93,19 @@ export class AdminController {
         enabled: boolean;
         allowDevLogin: boolean;
       }>;
+      telegram?: Partial<{
+        botToken: string;
+        webhookUrl: string;
+        webhookSecret: string;
+        enabled: boolean;
+      }>;
     },
   ) {
     return this.admin.updateAppSettings(body);
+  }
+
+  @Post('telegram/test')
+  sendTestTelegram(@Body() body: { phone?: string }) {
+    return this.admin.sendTestTelegram(String(body.phone || ''));
   }
 }

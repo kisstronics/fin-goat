@@ -1,8 +1,13 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { GoogleAuthService } from '../auth/google-auth.service';
 import { MarketService } from '../market/market.service';
 import { StoreService } from '../store/store.service';
 import type { FeatureFlag, Plan, PlanId, Ticker } from '../store/types';
+import { TelegramService } from '../telegram/telegram.service';
 
 @Injectable()
 export class AdminService {
@@ -10,6 +15,7 @@ export class AdminService {
     private readonly store: StoreService,
     private readonly googleAuth: GoogleAuthService,
     private readonly market: MarketService,
+    private readonly telegram: TelegramService,
   ) {}
 
   async users() {
@@ -90,7 +96,10 @@ export class AdminService {
   }
 
   async getAppSettings() {
-    const google = await this.store.getGoogleAuthSettings();
+    const [google, telegram] = await Promise.all([
+      this.store.getGoogleAuthSettings(),
+      this.store.getTelegramSettings(),
+    ]);
     return {
       google: {
         enabled: google.enabled,
@@ -99,6 +108,13 @@ export class AdminService {
         hasClientSecret: Boolean(google.clientSecret),
         callbackUrl: google.callbackUrl,
         allowDevLogin: google.allowDevLogin,
+      },
+      telegram: {
+        enabled: telegram.enabled,
+        hasBotToken: Boolean(telegram.botToken),
+        webhookUrl: telegram.webhookUrl,
+        hasWebhookSecret: Boolean(telegram.webhookSecret),
+        botUsername: telegram.botUsername,
       },
     };
   }
@@ -111,11 +127,42 @@ export class AdminService {
       enabled: boolean;
       allowDevLogin: boolean;
     }>;
+    telegram?: Partial<{
+      botToken: string;
+      webhookUrl: string;
+      webhookSecret: string;
+      enabled: boolean;
+    }>;
   }) {
     if (body.google) {
       await this.store.updateGoogleAuthSettings(body.google);
       await this.googleAuth.refreshStrategy();
     }
+    if (body.telegram) {
+      await this.telegram.updateSettings(body.telegram);
+    }
     return this.getAppSettings();
+  }
+
+  async sendTestTelegram(phone: string) {
+    if (!String(phone || '').trim()) {
+      throw new BadRequestException('Phone number is required');
+    }
+    const result = await this.telegram.sendToLinkedPhone(
+      phone,
+      'Fin Goat admin test message ✅\n\nYour phone + chat_id link is working.',
+    );
+    if (!result.ok) {
+      throw new BadRequestException(
+        result.error || 'No linked user found for that phone',
+      );
+    }
+    return {
+      ok: true,
+      userId: result.userId,
+      chatId: result.chatId,
+      phone: result.phone,
+      message: 'Test message sent on Telegram',
+    };
   }
 }

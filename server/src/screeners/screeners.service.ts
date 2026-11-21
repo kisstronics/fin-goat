@@ -1,7 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { v4 as uuid } from 'uuid';
 import { StoreService } from '../store/store.service';
 import type { ScreenerKey, ScreenerResult, Ticker } from '../store/types';
+import { TelegramService } from '../telegram/telegram.service';
 
 const SCREENER_META: Record<
   ScreenerKey,
@@ -26,7 +27,12 @@ const SCREENER_META: Record<
 
 @Injectable()
 export class ScreenersService {
-  constructor(private readonly store: StoreService) {}
+  private readonly logger = new Logger(ScreenersService.name);
+
+  constructor(
+    private readonly store: StoreService,
+    private readonly telegram: TelegramService,
+  ) {}
 
   async listDefinitions() {
     const features = await this.store.listFeatures();
@@ -146,14 +152,25 @@ export class ScreenersService {
         });
       }
       if (user.notifyTelegram && user.telegramChatId) {
+        const title = 'Fin Goat screener alert';
+        const message = `${title}\n\n${body}`;
+        const sent = await this.telegram.sendMessage(
+          user.telegramChatId,
+          message,
+        );
+        if (!sent.ok) {
+          this.logger.warn(
+            `Telegram alert failed for ${user.id}: ${sent.error}`,
+          );
+        }
         await this.store.createAlert({
           id: uuid(),
           userId: user.id,
           channel: 'telegram',
-          title: 'Screener alert',
+          title,
           body,
           createdAt: stamp,
-          status: 'sent',
+          status: sent.ok ? 'sent' : 'failed',
         });
       }
     }

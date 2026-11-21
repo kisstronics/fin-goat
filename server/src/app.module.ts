@@ -7,6 +7,7 @@ import { CronJobsModule } from './cron/cron.module';
 import { PortfolioModule } from './portfolio/portfolio.module';
 import { ScreenersModule } from './screeners/screeners.module';
 import { StoreModule } from './store/store.module';
+import { TelegramModule } from './telegram/telegram.module';
 import { UsersModule } from './users/users.module';
 
 @Module({
@@ -23,6 +24,7 @@ import { UsersModule } from './users/users.module';
     ScreenersModule,
     AdminModule,
     CronJobsModule,
+    TelegramModule,
   ],
 })
 export class AppModule {}
