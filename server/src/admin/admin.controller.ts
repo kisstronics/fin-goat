@@ -9,7 +9,13 @@ import {
 } from '@nestjs/common';
 import { AdminGuard } from '../common/admin.guard';
 import { JwtAuthGuard } from '../common/jwt-auth.guard';
-import type { FeatureFlag, Plan, PlanId, Ticker } from '../store/types';
+import type {
+  CronJobKey,
+  FeatureFlag,
+  Plan,
+  PlanId,
+  Ticker,
+} from '../store/types';
 import { AdminService } from './admin.service';
 
 @Controller('api/admin')
@@ -75,6 +81,22 @@ export class AdminController {
   @Get('cron-runs')
   cronRuns() {
     return this.admin.cronRuns();
+  }
+
+  @Get('cron-settings')
+  cronSettings() {
+    return this.admin.getCronSettings();
+  }
+
+  @Patch('cron-settings')
+  updateCronSettings(
+    @Body()
+    body: {
+      masterEnabled?: boolean;
+      jobs?: Partial<Record<CronJobKey, boolean>>;
+    },
+  ) {
+    return this.admin.updateCronSettings(body);
   }
 
   @Get('app-settings')

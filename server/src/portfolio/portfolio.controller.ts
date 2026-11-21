@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -27,6 +28,19 @@ export class PortfolioController {
   @Get('dashboard')
   dashboard(@Req() req: Request & { user: User }) {
     return this.portfolio.dashboard(req.user.id);
+  }
+
+  @Get('projection')
+  projection(
+    @Req() req: Request & { user: User },
+    @Query('month') month?: string,
+    @Query('year') year?: string,
+  ) {
+    return this.portfolio.projectNetWorth(
+      req.user.id,
+      Number(month),
+      Number(year),
+    );
   }
 
   @Post()

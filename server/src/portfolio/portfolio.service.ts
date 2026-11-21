@@ -1,7 +1,12 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { v4 as uuid } from 'uuid';
 import { StoreService } from '../store/store.service';
-import type { AssetType, Holding } from '../store/types';
+import type {
+  AssetType,
+  Holding,
+  NetWorthProjection,
+  RecurringItem,
+} from '../store/types';
 
 @Injectable()
 export class PortfolioService {
@@ -14,6 +19,10 @@ export class PortfolioService {
   private isLiability(h: Holding) {
     // Loans you owe are always liabilities. Cash lending stays an investment.
     return h.assetType === 'loan' || h.currentValue < 0;
+  }
+
+  private monthlyAmount(item: RecurringItem) {
+    return item.frequency === 'yearly' ? item.amount / 12 : item.amount;
   }
 
   async dashboard(userId: string) {
@@ -144,9 +153,119 @@ export class PortfolioService {
     id: string,
     patch: Partial<Omit<Holding, 'id' | 'userId'>>,
   ) {
-    const holding = await this.store.updateHolding(userId, id, patch);
+    const current = await this.store.findHolding(userId, id);
+    if (!current) throw new NotFoundException('Holding not found');
+
+    const nextPatch = { ...patch };
+    const assetType = nextPatch.assetType ?? current.assetType;
+    const isLoan = assetType === 'loan';
+    if (isLoan && nextPatch.currentValue !== undefined) {
+      nextPatch.currentValue = -Math.abs(Number(nextPatch.currentValue) || 0);
+      nextPatch.notes = nextPatch.notes ?? current.notes ?? 'Liability';
+    }
+
+    const holding = await this.store.updateHolding(userId, id, nextPatch);
     if (!holding) throw new NotFoundException('Holding not found');
     return holding;
+  }
+
+  async projectNetWorth(
+    userId: string,
+    targetMonth: number,
+    targetYear: number,
+  ): Promise<NetWorthProjection> {
+    if (
+      !Number.isInteger(targetMonth) ||
+      targetMonth < 1 ||
+      targetMonth > 12 ||
+      !Number.isInteger(targetYear) ||
+      targetYear < 2000 ||
+      targetYear > 2100
+    ) {
+      throw new BadRequestException('Provide a valid future month (1–12) and year');
+    }
+
+    const now = new Date();
+    const target = new Date(targetYear, targetMonth - 1, 1);
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    const monthsAhead =
+      (target.getFullYear() - start.getFullYear()) * 12 +
+      (target.getMonth() - start.getMonth());
+    if (monthsAhead < 0) {
+      throw new BadRequestException('Target month/year must be current or future');
+    }
+
+    const [dash, recurring] = await Promise.all([
+      this.dashboard(userId),
+      this.store.listRecurring(userId),
+    ]);
+
+    const active = recurring.filter((r) => r.active);
+    const monthlyIncome = active
+      .filter((r) => r.kind === 'income')
+      .reduce((s, r) => s + this.monthlyAmount(r), 0);
+    const monthlyExpenses = active
+      .filter((r) => r.kind === 'expense')
+      .reduce((s, r) => s + this.monthlyAmount(r), 0);
+
+    const monthlyEmi = dash.loans.reduce((s, h) => {
+      const emi = Number(h.meta?.emi);
+      return s + (Number.isFinite(emi) ? emi : 0);
+    }, 0);
+    const monthlySip = dash.investments.reduce((s, h) => {
+      const sip = Number(h.meta?.sip);
+      return s + (Number.isFinite(sip) ? sip : 0);
+    }, 0);
+
+    const monthlySurplus = monthlyIncome - monthlyExpenses;
+    // Cash left after living costs, EMIs, and SIPs (can be negative).
+    const cashFlow = monthlySurplus - monthlyEmi - monthlySip;
+
+    const assetAdd = monthsAhead * monthlySip + monthsAhead * Math.max(cashFlow, 0);
+    const cashBurn = monthsAhead * Math.max(-cashFlow, 0);
+    const liabilityReduce = Math.min(
+      dash.totalLiabilities,
+      monthsAhead * monthlyEmi,
+    );
+
+    const projectedAssets = Math.max(
+      0,
+      dash.totalAssets + assetAdd - Math.min(dash.totalAssets * 0.05, cashBurn),
+    );
+    const projectedLiabilities = Math.max(
+      0,
+      dash.totalLiabilities - liabilityReduce,
+    );
+    const projectedNetWorth = projectedAssets - projectedLiabilities;
+
+    return {
+      asOf: now.toISOString(),
+      targetMonth,
+      targetYear,
+      monthsAhead,
+      currentNetWorth: dash.netWorth,
+      projectedNetWorth,
+      projectedAssets,
+      projectedLiabilities,
+      monthlyIncome,
+      monthlyExpenses,
+      monthlyEmi,
+      monthlySip,
+      monthlySurplus,
+      breakdown: [
+        { label: 'Current net worth', amount: dash.netWorth },
+        { label: `SIP contributions (${monthsAhead} mo)`, amount: monthsAhead * monthlySip },
+        {
+          label: `Net cash after EMI/SIP (${monthsAhead} mo)`,
+          amount: monthsAhead * cashFlow,
+        },
+        {
+          label: `Loan paydown estimate (${monthsAhead} mo)`,
+          amount: liabilityReduce,
+        },
+        { label: 'Projected net worth', amount: projectedNetWorth },
+      ],
+    };
   }
 
   async remove(userId: string, id: string) {

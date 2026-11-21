@@ -18,12 +18,16 @@ import {
 import type {
   AlertLog,
   AppSetting,
+  CronJobKey,
+  CronJobSetting,
   CronRun,
+  CronSettings,
   FeatureFlag,
   GoogleAuthSettings,
   Holding,
   Plan,
   PlanId,
+  RecurringItem,
   ScreenerKey,
   ScreenerResult,
   TelegramSettings,
@@ -31,6 +35,30 @@ import type {
   User,
   WatchlistItem,
 } from './types';
+
+const CRON_JOB_META: Record<
+  CronJobKey,
+  { name: string; schedule: string; description: string; settingKey: string }
+> = {
+  screener_10m: {
+    name: 'Screener scan',
+    schedule: 'Every 10 minutes',
+    description: 'Runs all enabled screeners and queues alerts.',
+    settingKey: 'cron_screener_10m_enabled',
+  },
+  price_refresh: {
+    name: 'Yahoo LTP refresh',
+    schedule: 'Every hour',
+    description: 'Refreshes ticker prices, then re-runs screeners.',
+    settingKey: 'cron_price_refresh_enabled',
+  },
+  daily_digest: {
+    name: 'Daily digest',
+    schedule: 'Every day at 8:00',
+    description: 'Sends screener digest alerts to opted-in users.',
+    settingKey: 'cron_daily_digest_enabled',
+  },
+};
 
 @Injectable()
 export class StoreService implements OnModuleInit, OnModuleDestroy {
@@ -181,10 +209,26 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
         detail TEXT
       );
 
+      CREATE TABLE IF NOT EXISTS recurring_items (
+        id UUID PRIMARY KEY,
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL,
+        name TEXT NOT NULL,
+        category TEXT NOT NULL DEFAULT 'general',
+        amount NUMERIC NOT NULL DEFAULT 0,
+        frequency TEXT NOT NULL DEFAULT 'monthly',
+        day_of_month INT,
+        notes TEXT,
+        active BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
       CREATE INDEX IF NOT EXISTS idx_holdings_user ON holdings(user_id);
       CREATE INDEX IF NOT EXISTS idx_alerts_user ON alerts(user_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_screener_results_key ON screener_results(screener, matched_at DESC);
       CREATE INDEX IF NOT EXISTS idx_cron_runs_started ON cron_runs(started_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_recurring_user ON recurring_items(user_id, kind);
     `);
 
     await this.query(`
@@ -217,6 +261,10 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
       telegram_enabled: this.config.get<string>('TELEGRAM_BOT_TOKEN')?.trim()
         ? 'true'
         : 'false',
+      cron_master_enabled: 'true',
+      cron_screener_10m_enabled: 'true',
+      cron_price_refresh_enabled: 'true',
+      cron_daily_digest_enabled: 'true',
     };
 
     for (const [key, value] of Object.entries(defaults)) {
@@ -443,6 +491,23 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
         : undefined,
       status: row.status,
       detail: row.detail || undefined,
+    };
+  }
+
+  private mapRecurring(row: QueryResultRow): RecurringItem {
+    return {
+      id: row.id,
+      userId: row.user_id,
+      kind: row.kind,
+      name: row.name,
+      category: row.category || 'general',
+      amount: Number(row.amount),
+      frequency: row.frequency || 'monthly',
+      dayOfMonth: row.day_of_month == null ? undefined : Number(row.day_of_month),
+      notes: row.notes || undefined,
+      active: Boolean(row.active),
+      createdAt: new Date(row.created_at).toISOString(),
+      updatedAt: new Date(row.updated_at).toISOString(),
     };
   }
 
@@ -797,6 +862,57 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
       );
     }
     return this.getTelegramSettings();
+  }
+
+  async getCronSettings(): Promise<CronSettings> {
+    const master = await this.getSetting('cron_master_enabled');
+    const jobs: CronJobSetting[] = [];
+    for (const key of Object.keys(CRON_JOB_META) as CronJobKey[]) {
+      const meta = CRON_JOB_META[key];
+      const raw = await this.getSetting(meta.settingKey);
+      jobs.push({
+        key,
+        name: meta.name,
+        schedule: meta.schedule,
+        description: meta.description,
+        // Missing key (legacy DB) → enabled
+        enabled: raw !== 'false',
+      });
+    }
+    return {
+      masterEnabled: master !== 'false',
+      jobs,
+    };
+  }
+
+  async updateCronSettings(patch: {
+    masterEnabled?: boolean;
+    jobs?: Partial<Record<CronJobKey, boolean>>;
+  }): Promise<CronSettings> {
+    if (patch.masterEnabled !== undefined) {
+      await this.setSetting(
+        'cron_master_enabled',
+        patch.masterEnabled ? 'true' : 'false',
+      );
+    }
+    if (patch.jobs) {
+      for (const [key, enabled] of Object.entries(patch.jobs) as [
+        CronJobKey,
+        boolean | undefined,
+      ][]) {
+        if (enabled === undefined) continue;
+        const meta = CRON_JOB_META[key];
+        if (!meta) continue;
+        await this.setSetting(meta.settingKey, enabled ? 'true' : 'false');
+      }
+    }
+    return this.getCronSettings();
+  }
+
+  async isCronJobEnabled(job: CronJobKey): Promise<boolean> {
+    const settings = await this.getCronSettings();
+    if (!settings.masterEnabled) return false;
+    return settings.jobs.find((j) => j.key === job)?.enabled ?? true;
   }
 
   async updateUser(
@@ -1283,5 +1399,94 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
       [limit],
     );
     return rows.map((r) => this.mapCronRun(r));
+  }
+
+  // ——— Recurring income / expenses ———
+
+  async listRecurring(userId: string): Promise<RecurringItem[]> {
+    const { rows } = await this.query(
+      `SELECT * FROM recurring_items
+       WHERE user_id = $1
+       ORDER BY kind ASC, name ASC`,
+      [userId],
+    );
+    return rows.map((r) => this.mapRecurring(r));
+  }
+
+  async findRecurring(
+    userId: string,
+    id: string,
+  ): Promise<RecurringItem | null> {
+    const { rows } = await this.query(
+      `SELECT * FROM recurring_items WHERE id = $1 AND user_id = $2`,
+      [id, userId],
+    );
+    return rows[0] ? this.mapRecurring(rows[0]) : null;
+  }
+
+  async createRecurring(item: RecurringItem): Promise<RecurringItem> {
+    await this.query(
+      `INSERT INTO recurring_items (
+         id, user_id, kind, name, category, amount, frequency,
+         day_of_month, notes, active, created_at, updated_at
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+      [
+        item.id,
+        item.userId,
+        item.kind,
+        item.name,
+        item.category,
+        item.amount,
+        item.frequency,
+        item.dayOfMonth ?? null,
+        item.notes || null,
+        item.active,
+        item.createdAt,
+        item.updatedAt,
+      ],
+    );
+    return item;
+  }
+
+  async updateRecurring(
+    userId: string,
+    id: string,
+    patch: Partial<Omit<RecurringItem, 'id' | 'userId' | 'createdAt'>>,
+  ): Promise<RecurringItem | null> {
+    const current = await this.findRecurring(userId, id);
+    if (!current) return null;
+    const next: RecurringItem = {
+      ...current,
+      ...patch,
+      updatedAt: new Date().toISOString(),
+    };
+    await this.query(
+      `UPDATE recurring_items SET
+         kind=$3, name=$4, category=$5, amount=$6, frequency=$7,
+         day_of_month=$8, notes=$9, active=$10, updated_at=$11
+       WHERE id=$1 AND user_id=$2`,
+      [
+        id,
+        userId,
+        next.kind,
+        next.name,
+        next.category,
+        next.amount,
+        next.frequency,
+        next.dayOfMonth ?? null,
+        next.notes || null,
+        next.active,
+        next.updatedAt,
+      ],
+    );
+    return this.findRecurring(userId, id);
+  }
+
+  async deleteRecurring(userId: string, id: string): Promise<boolean> {
+    const result = await this.query(
+      `DELETE FROM recurring_items WHERE id = $1 AND user_id = $2`,
+      [id, userId],
+    );
+    return (result.rowCount || 0) > 0;
   }
 }

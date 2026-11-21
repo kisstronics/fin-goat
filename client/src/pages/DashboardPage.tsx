@@ -103,9 +103,25 @@ export function DashboardPage() {
         </ul>
       </section>
 
+      <section className="panel-block">
+        <div className="panel-head-row">
+          <h2>Recurring & projection</h2>
+          <Link to="/recurring" className="text-link">
+            Open
+          </Link>
+        </div>
+        <p className="muted">
+          Track regular income and expenses, then project net worth for a future
+          month and year.
+        </p>
+      </section>
+
       <section className="quick-links">
         <Link className="btn primary" to="/screeners">
           Open screeners
+        </Link>
+        <Link className="btn secondary" to="/recurring">
+          Recurring & project
         </Link>
         <Link className="btn secondary" to="/settings">
           Alerts & plans

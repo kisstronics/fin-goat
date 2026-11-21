@@ -6,7 +6,13 @@ import {
 import { GoogleAuthService } from '../auth/google-auth.service';
 import { MarketService } from '../market/market.service';
 import { StoreService } from '../store/store.service';
-import type { FeatureFlag, Plan, PlanId, Ticker } from '../store/types';
+import type {
+  CronJobKey,
+  FeatureFlag,
+  Plan,
+  PlanId,
+  Ticker,
+} from '../store/types';
 import { TelegramService } from '../telegram/telegram.service';
 
 @Injectable()
@@ -73,6 +79,17 @@ export class AdminService {
 
   cronRuns() {
     return this.store.listCronRuns(40);
+  }
+
+  getCronSettings() {
+    return this.store.getCronSettings();
+  }
+
+  updateCronSettings(body: {
+    masterEnabled?: boolean;
+    jobs?: Partial<Record<CronJobKey, boolean>>;
+  }) {
+    return this.store.updateCronSettings(body);
   }
 
   async overview() {

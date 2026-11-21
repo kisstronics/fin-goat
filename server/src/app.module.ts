@@ -5,6 +5,7 @@ import { AdminModule } from './admin/admin.module';
 import { AuthModule } from './auth/auth.module';
 import { CronJobsModule } from './cron/cron.module';
 import { PortfolioModule } from './portfolio/portfolio.module';
+import { RecurringModule } from './recurring/recurring.module';
 import { ScreenersModule } from './screeners/screeners.module';
 import { StoreModule } from './store/store.module';
 import { TelegramModule } from './telegram/telegram.module';
@@ -21,6 +22,7 @@ import { UsersModule } from './users/users.module';
     AuthModule,
     UsersModule,
     PortfolioModule,
+    RecurringModule,
     ScreenersModule,
     AdminModule,
     CronJobsModule,
