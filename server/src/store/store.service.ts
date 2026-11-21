@@ -26,6 +26,7 @@ import type {
   PlanId,
   ScreenerKey,
   ScreenerResult,
+  TelegramSettings,
   Ticker,
   User,
   WatchlistItem,
@@ -205,6 +206,17 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
         'http://localhost:3003/auth/google/callback',
       google_enabled: 'false',
       allow_dev_login: 'true',
+      telegram_bot_token:
+        this.config.get<string>('TELEGRAM_BOT_TOKEN')?.trim() || '',
+      telegram_webhook_url:
+        this.config.get<string>('TELEGRAM_WEBHOOK_URL')?.trim() ||
+        'http://localhost:3003/telegram/webhook',
+      telegram_webhook_secret:
+        this.config.get<string>('TELEGRAM_WEBHOOK_SECRET')?.trim() || '',
+      telegram_bot_username: '',
+      telegram_enabled: this.config.get<string>('TELEGRAM_BOT_TOKEN')?.trim()
+        ? 'true'
+        : 'false',
     };
 
     for (const [key, value] of Object.entries(defaults)) {
@@ -516,6 +528,61 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
     return rows[0] ? this.mapUser(rows[0]) : null;
   }
 
+  async findUserByPhone(phone: string): Promise<User | null> {
+    const digits = phone.replace(/\D/g, '');
+    if (!digits) return null;
+    const { rows } = await this.query(
+      `SELECT * FROM users
+       WHERE phone IS NOT NULL AND phone <> ''
+         AND regexp_replace(phone, '\\D', '', 'g') = $1
+       LIMIT 1`,
+      [digits],
+    );
+    if (rows[0]) return this.mapUser(rows[0]);
+
+    // Soft match: last 8–10 digits (country-code variants).
+    const { rows: all } = await this.query(
+      `SELECT * FROM users WHERE phone IS NOT NULL AND phone <> ''`,
+    );
+    for (const row of all) {
+      const stored = String(row.phone || '').replace(/\D/g, '');
+      if (this.samePhone(stored, digits)) return this.mapUser(row);
+    }
+    return null;
+  }
+
+  async findUserByTelegramChatId(chatId: string): Promise<User | null> {
+    const { rows } = await this.query(
+      'SELECT * FROM users WHERE telegram_chat_id = $1 LIMIT 1',
+      [chatId],
+    );
+    return rows[0] ? this.mapUser(rows[0]) : null;
+  }
+
+  /** Require both phone and chat_id — used for outbound Telegram delivery. */
+  async findUserByPhoneAndChatId(
+    phone: string,
+    chatId?: string,
+  ): Promise<User | null> {
+    const digits = phone.replace(/\D/g, '');
+    if (!digits) return null;
+
+    const byPhone = await this.findUserByPhone(digits);
+    if (!byPhone?.phone || !byPhone.telegramChatId) return null;
+    if (chatId && String(byPhone.telegramChatId) !== String(chatId)) {
+      return null;
+    }
+    return byPhone;
+  }
+
+  private samePhone(left: string, right: string): boolean {
+    if (left === right) return true;
+    const [short, long] =
+      left.length <= right.length ? [left, right] : [right, left];
+    if (short.length < 8 || long.length - short.length > 3) return false;
+    return long.endsWith(short);
+  }
+
   async createUser(user: User): Promise<User> {
     await this.query(
       `INSERT INTO users (
@@ -679,6 +746,57 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
       );
     }
     return this.getGoogleAuthSettings();
+  }
+
+  async getTelegramSettings(): Promise<TelegramSettings> {
+    const [botToken, webhookUrl, webhookSecret, botUsername, enabled] =
+      await Promise.all([
+        this.getSetting('telegram_bot_token'),
+        this.getSetting('telegram_webhook_url'),
+        this.getSetting('telegram_webhook_secret'),
+        this.getSetting('telegram_bot_username'),
+        this.getSetting('telegram_enabled'),
+      ]);
+    return {
+      botToken,
+      webhookUrl,
+      webhookSecret,
+      botUsername,
+      enabled: enabled === 'true' && Boolean(botToken),
+    };
+  }
+
+  async updateTelegramSettings(
+    patch: Partial<{
+      botToken: string;
+      webhookUrl: string;
+      webhookSecret: string;
+      enabled: boolean;
+    }>,
+  ): Promise<TelegramSettings> {
+    if (patch.botToken !== undefined) {
+      if (patch.botToken.trim()) {
+        await this.setSetting('telegram_bot_token', patch.botToken.trim());
+      }
+    }
+    if (patch.webhookUrl !== undefined) {
+      await this.setSetting('telegram_webhook_url', patch.webhookUrl.trim());
+    }
+    if (patch.webhookSecret !== undefined) {
+      if (patch.webhookSecret.trim()) {
+        await this.setSetting(
+          'telegram_webhook_secret',
+          patch.webhookSecret.trim(),
+        );
+      }
+    }
+    if (patch.enabled !== undefined) {
+      await this.setSetting(
+        'telegram_enabled',
+        patch.enabled ? 'true' : 'false',
+      );
+    }
+    return this.getTelegramSettings();
   }
 
   async updateUser(

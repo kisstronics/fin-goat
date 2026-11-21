@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Patch, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Patch,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import type { Request } from 'express';
 import { JwtAuthGuard } from '../common/jwt-auth.guard';
 import type { User } from '../store/types';
@@ -21,7 +29,6 @@ export class UsersController {
     body: Partial<{
       name: string;
       phone: string;
-      telegramChatId: string;
       notifyEmail: boolean;
       notifyTelegram: boolean;
       planId: User['planId'];
@@ -33,5 +40,10 @@ export class UsersController {
   @Get('alerts')
   alerts(@Req() req: Request & { user: User }) {
     return this.users.alerts(req.user.id);
+  }
+
+  @Post('telegram/test')
+  sendTestTelegram(@Req() req: Request & { user: User }) {
+    return this.users.sendTestTelegram(req.user.id);
   }
 }

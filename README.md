@@ -60,6 +60,26 @@ OAuth credentials live in Postgres table `app_settings` (not only env):
 
 Configure in **Admin → Sign-in**, or seed via `GOOGLE_*` env vars on first boot.
 
+### Telegram notifications
+
+Bot token and webhook live in `app_settings` (Admin → **Telegram**):
+
+| key | purpose |
+|---|---|
+| `telegram_bot_token` | BotFather token |
+| `telegram_webhook_url` | Public `POST /telegram/webhook` URL |
+| `telegram_webhook_secret` | Optional shared secret header |
+| `telegram_enabled` | `true` / `false` |
+
+**User linking flow**
+
+1. Save Telegram phone (with country code) in **Settings**
+2. Open the bot and send `hi`
+3. Share / type the same phone when asked — Fin Goat stores `chat_id`
+4. Screener alerts are sent to that chat when Telegram notifications are on
+
+Seed via `TELEGRAM_*` env vars on first boot, or edit anytime in the admin panel.
+
 ### Market data
 
 - **Admin → Tickers → Sync all tickers** loads the NSE liquid universe and prices them

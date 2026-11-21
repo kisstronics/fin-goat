@@ -9,6 +9,7 @@ type Tab =
   | 'plans'
   | 'features'
   | 'signin'
+  | 'telegram'
   | 'cron';
 
 type GoogleForm = {
@@ -18,6 +19,16 @@ type GoogleForm = {
   callbackUrl: string;
   allowDevLogin: boolean;
   hasClientSecret: boolean;
+};
+
+type TelegramForm = {
+  enabled: boolean;
+  botToken: string;
+  webhookUrl: string;
+  webhookSecret: string;
+  hasBotToken: boolean;
+  hasWebhookSecret: boolean;
+  botUsername: string;
 };
 
 export function AdminPage() {
@@ -36,7 +47,12 @@ export function AdminPage() {
   const [features, setFeatures] = useState<FeatureFlag[]>([]);
   const [cronRuns, setCronRuns] = useState<CronRun[]>([]);
   const [googleForm, setGoogleForm] = useState<GoogleForm | null>(null);
+  const [telegramForm, setTelegramForm] = useState<TelegramForm | null>(null);
+  const [testPhone, setTestPhone] = useState('');
+  const [testNote, setTestNote] = useState('');
+  const [testBusy, setTestBusy] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [telegramSaved, setTelegramSaved] = useState(false);
   const [error, setError] = useState('');
   const [syncBusy, setSyncBusy] = useState(false);
   const [refreshBusy, setRefreshBusy] = useState(false);
@@ -67,6 +83,15 @@ export function AdminPage() {
           callbackUrl: settings.google.callbackUrl,
           allowDevLogin: settings.google.allowDevLogin,
           hasClientSecret: settings.google.hasClientSecret,
+        });
+        setTelegramForm({
+          enabled: settings.telegram.enabled,
+          botToken: '',
+          webhookUrl: settings.telegram.webhookUrl,
+          webhookSecret: '',
+          hasBotToken: settings.telegram.hasBotToken,
+          hasWebhookSecret: settings.telegram.hasWebhookSecret,
+          botUsername: settings.telegram.botUsername,
         });
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Admin load failed');
@@ -148,6 +173,53 @@ export function AdminPage() {
     }
   }
 
+  async function onSaveTelegram(e: FormEvent) {
+    e.preventDefault();
+    if (!telegramForm) return;
+    setTelegramSaved(false);
+    setError('');
+    try {
+      const next = await api.updateAdminAppSettings({
+        telegram: {
+          enabled: telegramForm.enabled,
+          botToken: telegramForm.botToken || undefined,
+          webhookUrl: telegramForm.webhookUrl,
+          webhookSecret: telegramForm.webhookSecret || undefined,
+        },
+      });
+      setTelegramForm({
+        enabled: next.telegram.enabled,
+        botToken: '',
+        webhookUrl: next.telegram.webhookUrl,
+        webhookSecret: '',
+        hasBotToken: next.telegram.hasBotToken,
+        hasWebhookSecret: next.telegram.hasWebhookSecret,
+        botUsername: next.telegram.botUsername,
+      });
+      setTelegramSaved(true);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'Could not save Telegram settings',
+      );
+    }
+  }
+
+  async function onSendTelegramTest() {
+    setTestBusy(true);
+    setTestNote('');
+    setError('');
+    try {
+      const result = await api.adminSendTelegramTest(testPhone);
+      setTestNote(
+        `${result.message} · phone ${result.phone} · chat ${result.chatId}`,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Test send failed');
+    } finally {
+      setTestBusy(false);
+    }
+  }
+
   const tabs: { id: Tab; label: string }[] = [
     { id: 'overview', label: 'Overview' },
     { id: 'users', label: 'Users' },
@@ -155,6 +227,7 @@ export function AdminPage() {
     { id: 'plans', label: 'Plans' },
     { id: 'features', label: 'Features' },
     { id: 'signin', label: 'Sign-in' },
+    { id: 'telegram', label: 'Telegram' },
     { id: 'cron', label: 'Cron' },
   ];
 
@@ -164,7 +237,8 @@ export function AdminPage() {
         <p className="eyebrow">Admin</p>
         <h1>Console</h1>
         <p className="muted">
-          Users, CRN tickers, plans, features, Google Sign-in, and job runs.
+          Users, CRN tickers, plans, features, Google Sign-in, Telegram, and job
+          runs.
         </p>
       </header>
 
@@ -410,6 +484,125 @@ export function AdminPage() {
             Save sign-in settings
           </button>
         </form>
+      )}
+
+      {tab === 'telegram' && telegramForm && (
+        <form
+          className="panel-block form-grid"
+          onSubmit={(e) => void onSaveTelegram(e)}
+        >
+          <h2>Telegram bot</h2>
+          <p className="muted">
+            Users save their phone in Settings, send <code>hi</code> to the bot,
+            then share that phone so Fin Goat can store their <code>chat_id</code>{' '}
+            for alerts.
+          </p>
+
+          <label className="toggle-row">
+            <input
+              type="checkbox"
+              checked={telegramForm.enabled}
+              onChange={(e) =>
+                setTelegramForm({
+                  ...telegramForm,
+                  enabled: e.target.checked,
+                })
+              }
+            />
+            Enable Telegram notifications
+          </label>
+
+          <label>
+            Bot token (from BotFather)
+            <input
+              type="password"
+              value={telegramForm.botToken}
+              onChange={(e) =>
+                setTelegramForm({
+                  ...telegramForm,
+                  botToken: e.target.value,
+                })
+              }
+              placeholder={
+                telegramForm.hasBotToken
+                  ? '•••••••• (leave blank to keep)'
+                  : '123456:ABC…'
+              }
+              autoComplete="new-password"
+            />
+          </label>
+
+          <label>
+            Webhook URL (public HTTPS)
+            <input
+              value={telegramForm.webhookUrl}
+              onChange={(e) =>
+                setTelegramForm({
+                  ...telegramForm,
+                  webhookUrl: e.target.value,
+                })
+              }
+              placeholder="https://api.example.com/telegram/webhook"
+            />
+          </label>
+
+          <label>
+            Webhook secret (optional)
+            <input
+              type="password"
+              value={telegramForm.webhookSecret}
+              onChange={(e) =>
+                setTelegramForm({
+                  ...telegramForm,
+                  webhookSecret: e.target.value,
+                })
+              }
+              placeholder={
+                telegramForm.hasWebhookSecret
+                  ? '•••••••• (leave blank to keep)'
+                  : 'Optional shared secret'
+              }
+              autoComplete="new-password"
+            />
+          </label>
+
+          {telegramForm.botUsername && (
+            <p className="muted tiny">
+              Bot username: @{telegramForm.botUsername}
+            </p>
+          )}
+          {telegramSaved && <p className="positive">Telegram settings saved</p>}
+          <button className="btn primary" type="submit">
+            Save Telegram settings
+          </button>
+        </form>
+      )}
+
+      {tab === 'telegram' && (
+        <div className="panel-block form-grid">
+          <h2>Send test message</h2>
+          <p className="muted">
+            Looks up a user that has both this phone and a stored{' '}
+            <code>chat_id</code>, then sends a Telegram message.
+          </p>
+          <label>
+            User phone
+            <input
+              value={testPhone}
+              onChange={(e) => setTestPhone(e.target.value)}
+              placeholder="+91…"
+            />
+          </label>
+          {testNote && <p className="positive">{testNote}</p>}
+          <button
+            type="button"
+            className="btn secondary"
+            disabled={testBusy || !testPhone.trim()}
+            onClick={() => void onSendTelegramTest()}
+          >
+            {testBusy ? 'Sending…' : 'Send test message'}
+          </button>
+        </div>
       )}
 
       {tab === 'cron' && (

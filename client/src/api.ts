@@ -119,13 +119,43 @@ export const api = {
     ),
 
   settings: () =>
-    request<{ user: User; plan?: Plan; plans: Plan[] }>('/api/settings'),
-  updateSettings: (body: Partial<User>) =>
-    request<{ user: User; plan?: Plan; plans: Plan[] }>('/api/settings', {
+    request<{
+      user: User;
+      plan?: Plan;
+      plans: Plan[];
+      telegram: { enabled: boolean; botUsername: string; linked: boolean };
+    }>('/api/settings'),
+  updateSettings: (
+    body: Partial<
+      Pick<User, 'name' | 'phone' | 'notifyEmail' | 'notifyTelegram' | 'planId'>
+    >,
+  ) =>
+    request<{
+      user: User;
+      plan?: Plan;
+      plans: Plan[];
+      telegram: { enabled: boolean; botUsername: string; linked: boolean };
+    }>('/api/settings', {
       method: 'PATCH',
       body: JSON.stringify(body),
     }),
   alerts: () => request<AlertLog[]>('/api/settings/alerts'),
+  sendTelegramTest: () =>
+    request<{ ok: boolean; chatId?: string; phone?: string; message: string }>(
+      '/api/settings/telegram/test',
+      { method: 'POST' },
+    ),
+  adminSendTelegramTest: (phone: string) =>
+    request<{
+      ok: boolean;
+      userId?: string;
+      chatId?: string;
+      phone?: string;
+      message: string;
+    }>('/api/admin/telegram/test', {
+      method: 'POST',
+      body: JSON.stringify({ phone }),
+    }),
 
   adminOverview: () =>
     request<{
@@ -180,6 +210,13 @@ export const api = {
         callbackUrl: string;
         allowDevLogin: boolean;
       };
+      telegram: {
+        enabled: boolean;
+        hasBotToken: boolean;
+        webhookUrl: string;
+        hasWebhookSecret: boolean;
+        botUsername: string;
+      };
     }>('/api/admin/app-settings'),
   updateAdminAppSettings: (body: {
     google?: Partial<{
@@ -189,6 +226,12 @@ export const api = {
       enabled: boolean;
       allowDevLogin: boolean;
     }>;
+    telegram?: Partial<{
+      botToken: string;
+      webhookUrl: string;
+      webhookSecret: string;
+      enabled: boolean;
+    }>;
   }) =>
     request<{
       google: {
@@ -197,6 +240,13 @@ export const api = {
         hasClientSecret: boolean;
         callbackUrl: string;
         allowDevLogin: boolean;
+      };
+      telegram: {
+        enabled: boolean;
+        hasBotToken: boolean;
+        webhookUrl: string;
+        hasWebhookSecret: boolean;
+        botUsername: string;
       };
     }>('/api/admin/app-settings', {
       method: 'PATCH',

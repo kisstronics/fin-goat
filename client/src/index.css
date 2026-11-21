@@ -594,6 +594,18 @@ a {
 }
 
 .lede,
+.panel-note {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface, #fff) 92%, #94a3b8);
+}
+.panel-note ol {
+  margin: 0;
+  padding-left: 1.2rem;
+}
 .muted,
 .hint {
   color: var(--muted);

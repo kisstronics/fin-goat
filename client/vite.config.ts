@@ -7,6 +7,7 @@ export default defineConfig({
     port: 5174,
     proxy: {
       '/api': { target: 'http://localhost:3003', changeOrigin: true },
+      '/telegram': { target: 'http://localhost:3003', changeOrigin: true },
       '/auth': {
         target: 'http://localhost:3003',
         changeOrigin: true,

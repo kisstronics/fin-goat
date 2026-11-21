@@ -47,6 +47,14 @@ export interface GoogleAuthSettings {
   allowDevLogin: boolean;
 }
 
+export interface TelegramSettings {
+  enabled: boolean;
+  botToken: string;
+  webhookUrl: string;
+  webhookSecret: string;
+  botUsername: string;
+}
+
 export interface Plan {
   id: PlanId;
   name: string;
