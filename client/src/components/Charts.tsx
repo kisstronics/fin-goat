@@ -189,3 +189,100 @@ function compactAxis(value: number) {
   if (abs >= 1000) return `${sign}${(abs / 1000).toFixed(0)}k`;
   return `${sign}${Math.round(abs)}`;
 }
+
+export function PriceAreaChart({
+  bars,
+  positive = true,
+}: {
+  bars: { date: string; close: number }[];
+  positive?: boolean;
+}) {
+  const width = 720;
+  const height = 260;
+  const pad = { top: 16, right: 12, bottom: 36, left: 52 };
+  const innerW = width - pad.left - pad.right;
+  const innerH = height - pad.top - pad.bottom;
+
+  if (bars.length < 2) {
+    return <p className="muted">Not enough price history yet</p>;
+  }
+
+  const values = bars.map((b) => b.close);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = max - min || 1;
+
+  const coords = bars.map((b, i) => {
+    const x = pad.left + (i / (bars.length - 1)) * innerW;
+    const y = pad.top + innerH - ((b.close - min) / span) * innerH;
+    return { x, y, ...b };
+  });
+
+  const line = coords.map((c, i) => `${i === 0 ? 'M' : 'L'} ${c.x} ${c.y}`).join(' ');
+  const area = `${line} L ${coords[coords.length - 1].x} ${pad.top + innerH} L ${coords[0].x} ${pad.top + innerH} Z`;
+
+  const ticks = 4;
+  const yTicks = Array.from({ length: ticks + 1 }, (_, i) => {
+    const v = min + (span * i) / ticks;
+    const y = pad.top + innerH - ((v - min) / span) * innerH;
+    return { v, y };
+  });
+
+  const labelEvery = Math.max(1, Math.ceil(coords.length / 5));
+
+  return (
+    <div className={`chart-line-wrap stock-price-chart${positive ? '' : ' down'}`}>
+      <svg
+        className="chart-line"
+        viewBox={`0 0 ${width} ${height}`}
+        role="img"
+        aria-label="Stock price chart"
+      >
+        {yTicks.map((t) => (
+          <g key={t.y}>
+            <line
+              x1={pad.left}
+              x2={width - pad.right}
+              y1={t.y}
+              y2={t.y}
+              className="chart-grid"
+            />
+            <text
+              x={pad.left - 8}
+              y={t.y + 4}
+              textAnchor="end"
+              className="chart-axis"
+            >
+              {compactAxis(t.v)}
+            </text>
+          </g>
+        ))}
+        <path d={area} className="chart-area" />
+        <path d={line} className="chart-path" />
+        {coords.map((c, i) =>
+          i % labelEvery === 0 || i === coords.length - 1 ? (
+            <text
+              key={`lbl-${c.date}-${i}`}
+              x={c.x}
+              y={height - 10}
+              textAnchor="middle"
+              className="chart-axis"
+            >
+              {formatBarLabel(c.date)}
+            </text>
+          ) : null,
+        )}
+      </svg>
+    </div>
+  );
+}
+
+function formatBarLabel(date: string) {
+  // Yahoo intraday timestamps may be ISO; daily is YYYY-MM-DD.
+  const d = new Date(date.includes('T') ? date : `${date}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return date;
+  return d.toLocaleDateString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+  });
+}

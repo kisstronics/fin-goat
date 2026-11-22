@@ -11,6 +11,7 @@ import { AdminGuard } from '../common/admin.guard';
 import { JwtAuthGuard } from '../common/jwt-auth.guard';
 import type {
   CronJobKey,
+  EmailTemplateKey,
   FeatureFlag,
   Plan,
   PlanId,
@@ -53,6 +54,18 @@ export class AdminController {
   @Post('tickers/refresh-prices')
   refreshTickerPrices() {
     return this.admin.refreshTickerPrices();
+  }
+
+  @Post('tickers/backfill-history')
+  backfillHistory(@Body() body: { batchSize?: number }) {
+    return this.admin.backfillHistory(
+      typeof body?.batchSize === 'number' ? body.batchSize : 25,
+    );
+  }
+
+  @Get('tickers/history-coverage')
+  historyCoverage() {
+    return this.admin.historyCoverage();
   }
 
   @Get('plans')
@@ -122,13 +135,54 @@ export class AdminController {
         webhookSecret: string;
         enabled: boolean;
       }>;
+      smtp?: Partial<{
+        host: string;
+        port: number;
+        secure: boolean;
+        user: string;
+        pass: string;
+        fromName: string;
+        fromEmail: string;
+        enabled: boolean;
+      }>;
     },
   ) {
     return this.admin.updateAppSettings(body);
   }
 
+  @Get('email-templates')
+  emailTemplates() {
+    return this.admin.listEmailTemplates();
+  }
+
+  @Patch('email-templates/:key')
+  updateEmailTemplate(
+    @Param('key') key: EmailTemplateKey,
+    @Body()
+    body: Partial<{
+      name: string;
+      description: string;
+      subject: string;
+      bodyHtml: string;
+      bodyText: string;
+      enabled: boolean;
+    }>,
+  ) {
+    return this.admin.updateEmailTemplate(key, body);
+  }
+
+  @Post('email-templates/:key/reset')
+  resetEmailTemplate(@Param('key') key: EmailTemplateKey) {
+    return this.admin.resetEmailTemplate(key);
+  }
+
   @Post('telegram/test')
   sendTestTelegram(@Body() body: { phone?: string }) {
     return this.admin.sendTestTelegram(String(body.phone || ''));
+  }
+
+  @Post('email/test')
+  sendTestEmail(@Body() body: { to?: string }) {
+    return this.admin.sendTestEmail(String(body.to || ''));
   }
 }

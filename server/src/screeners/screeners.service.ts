@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { v4 as uuid } from 'uuid';
+import { EmailService } from '../email/email.service';
 import { StoreService } from '../store/store.service';
 import type { ScreenerKey, ScreenerResult, Ticker } from '../store/types';
 import { TelegramService } from '../telegram/telegram.service';
@@ -32,6 +33,7 @@ export class ScreenersService {
   constructor(
     private readonly store: StoreService,
     private readonly telegram: TelegramService,
+    private readonly email: EmailService,
   ) {}
 
   async listDefinitions() {
@@ -141,14 +143,26 @@ export class ScreenersService {
         .join('\n');
 
       if (user.notifyEmail) {
+        const title = 'Fin Goat screener digest';
+        const sent = await this.email.notifyUser({
+          user,
+          templateKey: 'screener_digest',
+          title,
+          body,
+        });
+        if (!sent.ok) {
+          this.logger.warn(
+            `Email alert failed for ${user.id}: ${sent.error}`,
+          );
+        }
         await this.store.createAlert({
           id: uuid(),
           userId: user.id,
           channel: 'email',
-          title: 'Fin Goat screener digest',
+          title,
           body,
           createdAt: stamp,
-          status: 'sent',
+          status: sent.ok ? 'sent' : 'failed',
         });
       }
       if (user.notifyTelegram && user.telegramChatId) {

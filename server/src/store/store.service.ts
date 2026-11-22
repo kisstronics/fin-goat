@@ -7,6 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Pool, type QueryResultRow } from 'pg';
 import { v4 as uuid } from 'uuid';
+import { DEFAULT_EMAIL_TEMPLATES } from '../email/default-templates';
 import {
   seedFeatures,
   seedHoldings,
@@ -23,15 +24,19 @@ import type {
   CronJobSetting,
   CronRun,
   CronSettings,
+  EmailTemplate,
+  EmailTemplateKey,
   FeatureFlag,
   GoogleAuthSettings,
   Holding,
   NseAnnouncement,
   Plan,
   PlanId,
+  PriceBar,
   RecurringItem,
   ScreenerKey,
   ScreenerResult,
+  SmtpSettings,
   TelegramSettings,
   Ticker,
   User,
@@ -64,6 +69,15 @@ const CRON_JOB_META: Record<
     description: 'Refreshes ticker prices, then re-runs screeners.',
     settingKey: 'cron_price_refresh_enabled',
     expressionKey: 'cron_price_refresh_expr',
+  },
+  history_backfill: {
+    name: '1Y price history backfill',
+    schedule: 'Every 20 minutes',
+    expression: '*/20 * * * *',
+    description:
+      'Loads ~1 year of daily OHLCV into price_history in small batches (not all tickers at once).',
+    settingKey: 'cron_history_backfill_enabled',
+    expressionKey: 'cron_history_backfill_expr',
   },
   daily_digest: {
     name: 'Daily digest',
@@ -299,6 +313,28 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
         UNIQUE (user_id, ticker_id)
       );
 
+      CREATE TABLE IF NOT EXISTS email_templates (
+        key TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        subject TEXT NOT NULL,
+        body_html TEXT NOT NULL,
+        body_text TEXT NOT NULL,
+        enabled BOOLEAN NOT NULL DEFAULT TRUE,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS price_history (
+        ticker_id UUID NOT NULL REFERENCES tickers(id) ON DELETE CASCADE,
+        trade_date DATE NOT NULL,
+        open NUMERIC NOT NULL DEFAULT 0,
+        high NUMERIC NOT NULL DEFAULT 0,
+        low NUMERIC NOT NULL DEFAULT 0,
+        close NUMERIC NOT NULL DEFAULT 0,
+        volume BIGINT NOT NULL DEFAULT 0,
+        PRIMARY KEY (ticker_id, trade_date)
+      );
+
       CREATE INDEX IF NOT EXISTS idx_holdings_user ON holdings(user_id);
       CREATE INDEX IF NOT EXISTS idx_alerts_user ON alerts(user_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_screener_results_key ON screener_results(screener, matched_at DESC);
@@ -310,6 +346,8 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
         ON nse_announcements(announced_at DESC);
       CREATE INDEX IF NOT EXISTS idx_announcement_alert_user
         ON announcement_alert_stocks(user_id);
+      CREATE INDEX IF NOT EXISTS idx_price_history_date
+        ON price_history(trade_date DESC);
     `);
 
     await this.query(`
@@ -319,6 +357,7 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
     `);
 
     await this.ensureAppSettings();
+    await this.ensureEmailTemplates();
   }
 
   private async ensureAppSettings() {
@@ -342,12 +381,25 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
       telegram_enabled: this.config.get<string>('TELEGRAM_BOT_TOKEN')?.trim()
         ? 'true'
         : 'false',
+      smtp_host: this.config.get<string>('SMTP_HOST')?.trim() || '',
+      smtp_port: this.config.get<string>('SMTP_PORT')?.trim() || '587',
+      smtp_secure: this.config.get<string>('SMTP_SECURE')?.trim() || 'false',
+      smtp_user: this.config.get<string>('SMTP_USER')?.trim() || '',
+      smtp_pass: this.config.get<string>('SMTP_PASS')?.trim() || '',
+      smtp_from_name:
+        this.config.get<string>('SMTP_FROM_NAME')?.trim() || 'Fin Goat',
+      smtp_from_email: this.config.get<string>('SMTP_FROM_EMAIL')?.trim() || '',
+      smtp_enabled: this.config.get<string>('SMTP_HOST')?.trim()
+        ? 'true'
+        : 'false',
       cron_master_enabled: 'true',
       cron_screener_10m_enabled: 'true',
       cron_price_refresh_enabled: 'true',
+      cron_history_backfill_enabled: 'true',
       cron_daily_digest_enabled: 'true',
       cron_screener_10m_expr: CRON_JOB_META.screener_10m.expression,
       cron_price_refresh_expr: CRON_JOB_META.price_refresh.expression,
+      cron_history_backfill_expr: CRON_JOB_META.history_backfill.expression,
       cron_daily_digest_expr: CRON_JOB_META.daily_digest.expression,
       cron_expense_reminders_enabled: 'true',
       cron_expense_reminders_expr: CRON_JOB_META.expense_reminders.expression,
@@ -376,6 +428,25 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
       if (fromEnv) {
         await this.setSetting('google_enabled', 'true');
       }
+    }
+  }
+
+  private async ensureEmailTemplates() {
+    for (const tpl of DEFAULT_EMAIL_TEMPLATES) {
+      await this.query(
+        `INSERT INTO email_templates
+           (key, name, description, subject, body_html, body_text, enabled, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, TRUE, NOW())
+         ON CONFLICT (key) DO NOTHING`,
+        [
+          tpl.key,
+          tpl.name,
+          tpl.description,
+          tpl.subject,
+          tpl.bodyHtml,
+          tpl.bodyText,
+        ],
+      );
     }
   }
 
@@ -983,6 +1054,215 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
     return this.getTelegramSettings();
   }
 
+  async getSmtpSettings(): Promise<SmtpSettings> {
+    const [host, port, secure, user, pass, fromName, fromEmail, enabled] =
+      await Promise.all([
+        this.getSetting('smtp_host'),
+        this.getSetting('smtp_port'),
+        this.getSetting('smtp_secure'),
+        this.getSetting('smtp_user'),
+        this.getSetting('smtp_pass'),
+        this.getSetting('smtp_from_name'),
+        this.getSetting('smtp_from_email'),
+        this.getSetting('smtp_enabled'),
+      ]);
+    const parsedPort = Number(port);
+    return {
+      host,
+      port: Number.isFinite(parsedPort) && parsedPort > 0 ? parsedPort : 587,
+      secure: secure === 'true',
+      user,
+      pass,
+      fromName: fromName || 'Fin Goat',
+      fromEmail,
+      enabled: enabled === 'true' && Boolean(host && fromEmail),
+    };
+  }
+
+  async updateSmtpSettings(
+    patch: Partial<{
+      host: string;
+      port: number;
+      secure: boolean;
+      user: string;
+      pass: string;
+      fromName: string;
+      fromEmail: string;
+      enabled: boolean;
+    }>,
+  ): Promise<SmtpSettings> {
+    if (patch.host !== undefined) {
+      await this.setSetting('smtp_host', patch.host.trim());
+    }
+    if (patch.port !== undefined) {
+      const port = Number(patch.port);
+      await this.setSetting(
+        'smtp_port',
+        String(Number.isFinite(port) && port > 0 ? port : 587),
+      );
+    }
+    if (patch.secure !== undefined) {
+      await this.setSetting('smtp_secure', patch.secure ? 'true' : 'false');
+    }
+    if (patch.user !== undefined) {
+      await this.setSetting('smtp_user', patch.user.trim());
+    }
+    if (patch.pass !== undefined) {
+      if (patch.pass.trim()) {
+        await this.setSetting('smtp_pass', patch.pass.trim());
+      }
+    }
+    if (patch.fromName !== undefined) {
+      await this.setSetting('smtp_from_name', patch.fromName.trim());
+    }
+    if (patch.fromEmail !== undefined) {
+      await this.setSetting('smtp_from_email', patch.fromEmail.trim());
+    }
+    if (patch.enabled !== undefined) {
+      await this.setSetting('smtp_enabled', patch.enabled ? 'true' : 'false');
+    }
+    return this.getSmtpSettings();
+  }
+
+  private mapEmailTemplate(row: {
+    key: string;
+    name: string;
+    description: string;
+    subject: string;
+    body_html: string;
+    body_text: string;
+    enabled: boolean;
+    updated_at: Date | string;
+  }): EmailTemplate {
+    return {
+      key: row.key as EmailTemplateKey,
+      name: row.name,
+      description: row.description || '',
+      subject: row.subject,
+      bodyHtml: row.body_html,
+      bodyText: row.body_text,
+      enabled: Boolean(row.enabled),
+      updatedAt: new Date(row.updated_at).toISOString(),
+    };
+  }
+
+  async listEmailTemplates(): Promise<EmailTemplate[]> {
+    await this.ensureEmailTemplates();
+    const { rows } = await this.query<{
+      key: string;
+      name: string;
+      description: string;
+      subject: string;
+      body_html: string;
+      body_text: string;
+      enabled: boolean;
+      updated_at: Date;
+    }>(
+      `SELECT key, name, description, subject, body_html, body_text, enabled, updated_at
+       FROM email_templates
+       ORDER BY name`,
+    );
+    return rows.map((r) => this.mapEmailTemplate(r));
+  }
+
+  async getEmailTemplate(key: EmailTemplateKey): Promise<EmailTemplate | null> {
+    await this.ensureEmailTemplates();
+    const { rows } = await this.query<{
+      key: string;
+      name: string;
+      description: string;
+      subject: string;
+      body_html: string;
+      body_text: string;
+      enabled: boolean;
+      updated_at: Date;
+    }>(
+      `SELECT key, name, description, subject, body_html, body_text, enabled, updated_at
+       FROM email_templates WHERE key = $1`,
+      [key],
+    );
+    return rows[0] ? this.mapEmailTemplate(rows[0]) : null;
+  }
+
+  async updateEmailTemplate(
+    key: EmailTemplateKey,
+    patch: Partial<{
+      name: string;
+      description: string;
+      subject: string;
+      bodyHtml: string;
+      bodyText: string;
+      enabled: boolean;
+    }>,
+  ): Promise<EmailTemplate | null> {
+    const existing = await this.getEmailTemplate(key);
+    if (!existing) return null;
+    const next: EmailTemplate = {
+      ...existing,
+      name: patch.name !== undefined ? patch.name.trim() : existing.name,
+      description:
+        patch.description !== undefined
+          ? patch.description.trim()
+          : existing.description,
+      subject:
+        patch.subject !== undefined ? patch.subject.trim() : existing.subject,
+      bodyHtml:
+        patch.bodyHtml !== undefined ? patch.bodyHtml : existing.bodyHtml,
+      bodyText:
+        patch.bodyText !== undefined ? patch.bodyText : existing.bodyText,
+      enabled: patch.enabled !== undefined ? patch.enabled : existing.enabled,
+      updatedAt: new Date().toISOString(),
+    };
+    await this.query(
+      `UPDATE email_templates SET
+         name = $2,
+         description = $3,
+         subject = $4,
+         body_html = $5,
+         body_text = $6,
+         enabled = $7,
+         updated_at = NOW()
+       WHERE key = $1`,
+      [
+        key,
+        next.name,
+        next.description,
+        next.subject,
+        next.bodyHtml,
+        next.bodyText,
+        next.enabled,
+      ],
+    );
+    return this.getEmailTemplate(key);
+  }
+
+  async resetEmailTemplate(key: EmailTemplateKey): Promise<EmailTemplate | null> {
+    const defaults = DEFAULT_EMAIL_TEMPLATES.find((t) => t.key === key);
+    if (!defaults) return null;
+    await this.query(
+      `INSERT INTO email_templates
+         (key, name, description, subject, body_html, body_text, enabled, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, TRUE, NOW())
+       ON CONFLICT (key) DO UPDATE SET
+         name = EXCLUDED.name,
+         description = EXCLUDED.description,
+         subject = EXCLUDED.subject,
+         body_html = EXCLUDED.body_html,
+         body_text = EXCLUDED.body_text,
+         enabled = TRUE,
+         updated_at = NOW()`,
+      [
+        defaults.key,
+        defaults.name,
+        defaults.description,
+        defaults.subject,
+        defaults.bodyHtml,
+        defaults.bodyText,
+      ],
+    );
+    return this.getEmailTemplate(key);
+  }
+
   async getCronSettings(): Promise<CronSettings> {
     const master = await this.getSetting('cron_master_enabled');
     const jobs: CronJobSetting[] = [];
@@ -1326,6 +1606,167 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
       ],
     );
     return this.findTicker(id);
+  }
+
+  async upsertPriceBars(bars: PriceBar[]): Promise<number> {
+    if (!bars.length) return 0;
+    const chunkSize = 100;
+    let written = 0;
+    for (let i = 0; i < bars.length; i += chunkSize) {
+      const chunk = bars.slice(i, i + chunkSize);
+      const values: unknown[] = [];
+      const placeholders: string[] = [];
+      chunk.forEach((bar, idx) => {
+        const o = idx * 7;
+        placeholders.push(
+          `($${o + 1}, $${o + 2}::date, $${o + 3}, $${o + 4}, $${o + 5}, $${o + 6}, $${o + 7})`,
+        );
+        values.push(
+          bar.tickerId,
+          bar.date,
+          bar.open,
+          bar.high,
+          bar.low,
+          bar.close,
+          bar.volume,
+        );
+      });
+      await this.query(
+        `INSERT INTO price_history
+           (ticker_id, trade_date, open, high, low, close, volume)
+         VALUES ${placeholders.join(', ')}
+         ON CONFLICT (ticker_id, trade_date) DO UPDATE SET
+           open = EXCLUDED.open,
+           high = EXCLUDED.high,
+           low = EXCLUDED.low,
+           close = EXCLUDED.close,
+           volume = EXCLUDED.volume`,
+        values,
+      );
+      written += chunk.length;
+    }
+    return written;
+  }
+
+  async listPriceBars(
+    tickerId: string,
+    opts?: { from?: string; to?: string; limit?: number },
+  ): Promise<PriceBar[]> {
+    const limit = Math.min(Math.max(opts?.limit ?? 400, 1), 2000);
+    const params: unknown[] = [tickerId];
+    let where = 'ticker_id = $1';
+    if (opts?.from) {
+      params.push(opts.from);
+      where += ` AND trade_date >= $${params.length}::date`;
+    }
+    if (opts?.to) {
+      params.push(opts.to);
+      where += ` AND trade_date <= $${params.length}::date`;
+    }
+    params.push(limit);
+    const { rows } = await this.query<{
+      ticker_id: string;
+      trade_date: Date | string;
+      open: string;
+      high: string;
+      low: string;
+      close: string;
+      volume: string;
+    }>(
+      `SELECT ticker_id, trade_date, open, high, low, close, volume
+       FROM price_history
+       WHERE ${where}
+       ORDER BY trade_date DESC
+       LIMIT $${params.length}`,
+      params,
+    );
+    return rows
+      .map((r) => ({
+        tickerId: r.ticker_id,
+        date:
+          typeof r.trade_date === 'string'
+            ? r.trade_date.slice(0, 10)
+            : r.trade_date.toISOString().slice(0, 10),
+        open: Number(r.open),
+        high: Number(r.high),
+        low: Number(r.low),
+        close: Number(r.close),
+        volume: Number(r.volume),
+      }))
+      .reverse();
+  }
+
+  async countPriceBars(tickerId: string): Promise<number> {
+    const { rows } = await this.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM price_history WHERE ticker_id = $1`,
+      [tickerId],
+    );
+    return Number(rows[0]?.count || 0);
+  }
+
+  /** Active tickers with fewer than minBars of history (oldest first by symbol). */
+  async listTickersNeedingHistory(
+    minBars = 200,
+    limit = 25,
+  ): Promise<Ticker[]> {
+    const { rows } = await this.query(
+      `SELECT t.*
+       FROM tickers t
+       LEFT JOIN (
+         SELECT ticker_id, COUNT(*)::int AS bars
+         FROM price_history
+         GROUP BY ticker_id
+       ) h ON h.ticker_id = t.id
+       WHERE t.active = TRUE
+         AND COALESCE(h.bars, 0) < $1
+       ORDER BY COALESCE(h.bars, 0) ASC, t.symbol ASC
+       LIMIT $2`,
+      [minBars, limit],
+    );
+    return rows.map((r) => this.mapTicker(r));
+  }
+
+  async countHistoryCoverage(minBars = 200) {
+    const { rows } = await this.query<{
+      total: string;
+      complete: string;
+    }>(
+      `SELECT
+         COUNT(*)::text AS total,
+         COUNT(*) FILTER (
+           WHERE COALESCE(h.bars, 0) >= $1
+         )::text AS complete
+       FROM tickers t
+       LEFT JOIN (
+         SELECT ticker_id, COUNT(*)::int AS bars
+         FROM price_history
+         GROUP BY ticker_id
+       ) h ON h.ticker_id = t.id
+       WHERE t.active = TRUE`,
+      [minBars],
+    );
+    return {
+      total: Number(rows[0]?.total || 0),
+      complete: Number(rows[0]?.complete || 0),
+      minBars,
+    };
+  }
+
+  async listPeerTickers(
+    sector: string,
+    excludeId: string,
+    limit = 8,
+  ): Promise<Ticker[]> {
+    const { rows } = await this.query(
+      `SELECT * FROM tickers
+       WHERE active = TRUE
+         AND sector = $1
+         AND id <> $2
+       ORDER BY market_cap_cr DESC NULLS LAST, symbol ASC
+       LIMIT $3`,
+      [sector || 'Other', excludeId, limit],
+    );
+    return rows.map((r) => this.mapTicker(r));
   }
 
   // ——— Holdings ———

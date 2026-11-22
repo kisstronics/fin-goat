@@ -5,6 +5,7 @@ import { AdminModule } from './admin/admin.module';
 import { AnnouncementsModule } from './announcements/announcements.module';
 import { AuthModule } from './auth/auth.module';
 import { CronJobsModule } from './cron/cron.module';
+import { EmailModule } from './email/email.module';
 import { MarketModule } from './market/market.module';
 import { PortfolioModule } from './portfolio/portfolio.module';
 import { RecurringModule } from './recurring/recurring.module';
@@ -31,6 +32,7 @@ import { UsersModule } from './users/users.module';
     AdminModule,
     CronJobsModule,
     TelegramModule,
+    EmailModule,
   ],
 })
 export class AppModule {}

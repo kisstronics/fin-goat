@@ -6,10 +6,12 @@ import {
 import { CronJob } from 'cron';
 import { GoogleAuthService } from '../auth/google-auth.service';
 import { CronJobsService } from '../cron/cron.service';
+import { EmailService } from '../email/email.service';
 import { MarketService } from '../market/market.service';
 import { StoreService } from '../store/store.service';
 import type {
   CronJobKey,
+  EmailTemplateKey,
   FeatureFlag,
   Plan,
   PlanId,
@@ -24,6 +26,7 @@ export class AdminService {
     private readonly googleAuth: GoogleAuthService,
     private readonly market: MarketService,
     private readonly telegram: TelegramService,
+    private readonly email: EmailService,
     private readonly cronJobs: CronJobsService,
   ) {}
 
@@ -58,6 +61,14 @@ export class AdminService {
 
   refreshTickerPrices() {
     return this.market.refreshAllPrices();
+  }
+
+  backfillHistory(batchSize?: number) {
+    return this.market.backfillHistoryBatch(batchSize ?? 25);
+  }
+
+  historyCoverage() {
+    return this.market.historyCoverage();
   }
 
   plans() {
@@ -150,9 +161,10 @@ export class AdminService {
   }
 
   async getAppSettings() {
-    const [google, telegram] = await Promise.all([
+    const [google, telegram, smtp] = await Promise.all([
       this.store.getGoogleAuthSettings(),
       this.store.getTelegramSettings(),
+      this.store.getSmtpSettings(),
     ]);
     return {
       google: {
@@ -169,6 +181,16 @@ export class AdminService {
         webhookUrl: telegram.webhookUrl,
         hasWebhookSecret: Boolean(telegram.webhookSecret),
         botUsername: telegram.botUsername,
+      },
+      smtp: {
+        enabled: smtp.enabled,
+        host: smtp.host,
+        port: smtp.port,
+        secure: smtp.secure,
+        user: smtp.user,
+        hasPass: Boolean(smtp.pass),
+        fromName: smtp.fromName,
+        fromEmail: smtp.fromEmail,
       },
     };
   }
@@ -187,6 +209,16 @@ export class AdminService {
       webhookSecret: string;
       enabled: boolean;
     }>;
+    smtp?: Partial<{
+      host: string;
+      port: number;
+      secure: boolean;
+      user: string;
+      pass: string;
+      fromName: string;
+      fromEmail: string;
+      enabled: boolean;
+    }>;
   }) {
     if (body.google) {
       await this.store.updateGoogleAuthSettings(body.google);
@@ -195,7 +227,36 @@ export class AdminService {
     if (body.telegram) {
       await this.telegram.updateSettings(body.telegram);
     }
+    if (body.smtp) {
+      await this.email.updateSettings(body.smtp);
+    }
     return this.getAppSettings();
+  }
+
+  listEmailTemplates() {
+    return this.store.listEmailTemplates();
+  }
+
+  async updateEmailTemplate(
+    key: EmailTemplateKey,
+    patch: Partial<{
+      name: string;
+      description: string;
+      subject: string;
+      bodyHtml: string;
+      bodyText: string;
+      enabled: boolean;
+    }>,
+  ) {
+    const next = await this.store.updateEmailTemplate(key, patch);
+    if (!next) throw new NotFoundException('Email template not found');
+    return next;
+  }
+
+  async resetEmailTemplate(key: EmailTemplateKey) {
+    const next = await this.store.resetEmailTemplate(key);
+    if (!next) throw new NotFoundException('Email template not found');
+    return next;
   }
 
   async sendTestTelegram(phone: string) {
@@ -217,6 +278,16 @@ export class AdminService {
       chatId: result.chatId,
       phone: result.phone,
       message: 'Test message sent on Telegram',
+    };
+  }
+
+  async sendTestEmail(to: string) {
+    const result = await this.email.sendTestEmail(to);
+    return {
+      ok: true,
+      messageId: result.messageId,
+      message: 'Test email sent',
+      to: String(to || '').trim(),
     };
   }
 }

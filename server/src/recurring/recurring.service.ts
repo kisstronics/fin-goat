@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { v4 as uuid } from 'uuid';
+import { EmailService } from '../email/email.service';
 import { StoreService } from '../store/store.service';
 import type {
   RecurringFrequency,
@@ -20,6 +21,7 @@ export class RecurringService {
   constructor(
     private readonly store: StoreService,
     private readonly telegram: TelegramService,
+    private readonly email: EmailService,
   ) {}
 
   list(userId: string) {
@@ -236,6 +238,17 @@ export class RecurringService {
       const title = 'Fin Goat expense deduction reminder';
 
       if (user.notifyEmail) {
+        const sent = await this.email.notifyUser({
+          user,
+          templateKey: 'expense_reminder',
+          title,
+          body,
+        });
+        if (!sent.ok) {
+          this.logger.warn(
+            `Expense reminder email failed for ${user.id}: ${sent.error}`,
+          );
+        }
         await this.store.createAlert({
           id: uuid(),
           userId: user.id,
@@ -243,7 +256,7 @@ export class RecurringService {
           title,
           body,
           createdAt: stamp,
-          status: 'sent',
+          status: sent.ok ? 'sent' : 'failed',
         });
       }
       if (user.notifyTelegram && user.telegramChatId) {
