@@ -72,7 +72,6 @@ export interface DashboardData {
   investments?: Holding[];
   loans?: Holding[];
   holdings: Holding[];
-  actions: string[];
   updatedAt: string;
 }
 

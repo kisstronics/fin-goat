@@ -249,18 +249,6 @@ export function DashboardPage() {
         </section>
       )}
 
-      <section className="panel-block">
-        <h2>Action center</h2>
-        <ul className="action-list">
-          {data.actions.length === 0 && (
-            <li className="muted">No upcoming actions</li>
-          )}
-          {data.actions.map((item) => (
-            <li key={item}>{item}</li>
-          ))}
-        </ul>
-      </section>
-
       <section className="quick-links">
         <Link className="btn primary" to="/market">
           Open market
