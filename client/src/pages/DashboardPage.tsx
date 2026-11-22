@@ -189,6 +189,12 @@ export function DashboardPage() {
                       >
                         {formatInr(series.monthlySurplus, true)}
                       </strong>
+                      <p className="muted tiny">
+                        After expenses &amp; SIP
+                        {series.monthlySip > 0
+                          ? ` (−${formatInr(series.monthlySip, true)})`
+                          : ''}
+                      </p>
                     </article>
                   </section>
                   <div className="table-wrap" style={{ marginTop: 12 }}>

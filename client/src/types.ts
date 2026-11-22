@@ -97,6 +97,7 @@ export interface RecurringSummary {
   items: RecurringItem[];
   monthlyIncome: number;
   monthlyExpenses: number;
+  monthlySip: number;
   monthlySurplus: number;
 }
 

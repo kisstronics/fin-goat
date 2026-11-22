@@ -35,8 +35,9 @@ export class PortfolioService {
     monthlyEmi: number,
     monthlySip: number,
   ) {
-    const monthlySurplus = monthlyIncome - monthlyExpenses;
-    const cashFlow = monthlySurplus - monthlyEmi - monthlySip;
+    // Surplus after living costs and SIP. SIP still compounds into assets below.
+    const monthlySurplus = monthlyIncome - monthlyExpenses - monthlySip;
+    const cashFlow = monthlySurplus - monthlyEmi;
     const assetAdd =
       monthsAhead * monthlySip + monthsAhead * Math.max(cashFlow, 0);
     const cashBurn = monthsAhead * Math.max(-cashFlow, 0);
@@ -342,7 +343,7 @@ export class PortfolioService {
       monthlyExpenses,
       monthlyEmi,
       monthlySip,
-      monthlySurplus: monthlyIncome - monthlyExpenses,
+      monthlySurplus: monthlyIncome - monthlyExpenses - monthlySip,
       points,
     };
   }
