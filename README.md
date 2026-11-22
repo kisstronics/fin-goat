@@ -80,11 +80,29 @@ Bot token and webhook live in `app_settings` (Admin → **Telegram**):
 
 Seed via `TELEGRAM_*` env vars on first boot, or edit anytime in the admin panel.
 
+### Email notifications (SMTP)
+
+SMTP lives in `app_settings` (Admin → **Email**). Templates are editable in Admin → **Email Templates**.
+
+| key | purpose |
+|---|---|
+| `smtp_host` / `smtp_port` / `smtp_secure` | SMTP server |
+| `smtp_user` / `smtp_pass` | Auth (pass never returned raw) |
+| `smtp_from_name` / `smtp_from_email` | From header |
+| `smtp_enabled` | `true` / `false` |
+
+Templates (`screener_digest`, `nse_announcement`, `expense_reminder`, `test_email`) support `{{userName}}`, `{{title}}`, `{{body}}`, `{{symbol}}`, `{{appName}}`.
+
+Seed via `SMTP_*` env vars on first boot, or configure in the admin panel. Use **Send test email** to verify delivery.
+
 ### Market data
 
-- **Admin → Tickers → Sync all tickers** loads the NSE liquid universe and prices them
+- **Admin → Tickers → Sync all tickers** loads the full NSE equity master list (`EQUITY_L.csv`, ~2k–2.7k symbols) and starts Yahoo price refresh in the background
 - **Refresh prices now** updates LTP for tickers already in the DB
+- **Backfill 1Y history (batch)** stores ~1 year of daily OHLCV in `price_history` for ~25 tickers per run (also via cron every 20m). Opening a stock page loads 1Y on demand if missing
+- Stock detail at `/market/:SYMBOL` (Overview, Sentiment, Forecasts, Financials, Peers, Holdings, Events, News)
 - Hourly cron pulls LTP + SMA50/SMA200 + 52W range from Yahoo Finance chart API (`*.NS`, free / delayed)
+- If the NSE CSV fetch fails, sync falls back to a curated liquid universe (~100 names)
 
 ## MVP (this repo)
 
@@ -102,9 +120,12 @@ Seed via `TELEGRAM_*` env vars on first boot, or edit anytime in the admin panel
 ### Admin
 
 - Users
-- Stock ticker management (CRN + NSE/BSE params)
+- Stock ticker management (CRN + NSE/BSE params; full NSE equity sync)
 - Plans
 - Features (feature flags)
+- Sign-in (Google OAuth)
+- Email (SMTP) + Email Templates
+- Telegram
 - Cron run history + on/off controls (master + per job)
 
 ## Product notes
@@ -117,12 +138,13 @@ Screeners are analytical tools — not buy/sell recommendations.
 
 - Admin Pages
   - Users
-  - Stock Ticker management (all key stock parameters / CRN)
+  - Stock Ticker management (all key stock parameters / CRN; full NSE sync)
   - Plans
   - Features
     - Golden Cross Over
     - Near 52 Week Low
     - Above 50% low from 52W High
+  - Email (SMTP) + Email Templates
   - Cron (master + per-job on/off, run history)
 - User
   - Settings (Plans, Email, Telegram, phone)

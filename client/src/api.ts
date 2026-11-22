@@ -1,5 +1,6 @@
 import type {
   AlertLog,
+  ChartRange,
   CronJobKey,
   CronRun,
   CronSettings,
@@ -10,12 +11,14 @@ import type {
   NetWorthProjection,
   NseAnnouncement,
   Plan,
+  PriceBar,
   ProjectionSeries,
   RecurringItem,
   RecurringSummary,
   ScreenerDef,
   ScreenerKey,
   ScreenerResultRow,
+  StockDetail,
   Ticker,
   User,
 } from './types';
@@ -170,6 +173,21 @@ export const api = {
       method: 'POST',
     }),
   marketTickers: () => request<Ticker[]>('/api/market/tickers'),
+  stockDetail: (symbol: string) =>
+    request<StockDetail>(`/api/market/tickers/${encodeURIComponent(symbol)}`),
+  stockHistory: (symbol: string, range: ChartRange = '1y') =>
+    request<{
+      symbol: string;
+      range: ChartRange;
+      source: string;
+      bars: PriceBar[];
+    }>(
+      `/api/market/tickers/${encodeURIComponent(symbol)}/history?range=${range}`,
+    ),
+  historyCoverage: () =>
+    request<{ total: number; complete: number; minBars: number }>(
+      '/api/market/history-coverage',
+    ),
   watchlist: () =>
     request<{ id: string; tickerId: string; ticker?: Ticker }[]>(
       '/api/screeners/watchlist',
@@ -267,8 +285,11 @@ export const api = {
         attempted: number;
         updated: number;
         failed: { symbol: string; error: string }[];
+        status?: string;
+        note?: string;
       };
       source: string;
+      fallback?: boolean;
       syncedAt: string;
     }>('/api/admin/tickers/sync', { method: 'POST' }),
   refreshTickerPrices: () =>
@@ -278,6 +299,23 @@ export const api = {
       failed: { symbol: string; error: string }[];
       refreshedAt: string;
     }>('/api/admin/tickers/refresh-prices', { method: 'POST' }),
+  backfillHistory: (batchSize = 25) =>
+    request<{
+      skipped: boolean;
+      reason?: string;
+      attempted: number;
+      updated: number;
+      failed: { symbol: string; error: string }[];
+      coverage: { total: number; complete: number; minBars: number };
+      finishedAt?: string;
+    }>('/api/admin/tickers/backfill-history', {
+      method: 'POST',
+      body: JSON.stringify({ batchSize }),
+    }),
+  adminHistoryCoverage: () =>
+    request<{ total: number; complete: number; minBars: number }>(
+      '/api/admin/tickers/history-coverage',
+    ),
   adminPlans: () => request<Plan[]>('/api/admin/plans'),
   adminFeatures: () => request<FeatureFlag[]>('/api/admin/features'),
   updateFeature: (key: string, body: Partial<FeatureFlag>) =>
@@ -312,6 +350,16 @@ export const api = {
         hasWebhookSecret: boolean;
         botUsername: string;
       };
+      smtp: {
+        enabled: boolean;
+        host: string;
+        port: number;
+        secure: boolean;
+        user: string;
+        hasPass: boolean;
+        fromName: string;
+        fromEmail: string;
+      };
     }>('/api/admin/app-settings'),
   updateAdminAppSettings: (body: {
     google?: Partial<{
@@ -325,6 +373,16 @@ export const api = {
       botToken: string;
       webhookUrl: string;
       webhookSecret: string;
+      enabled: boolean;
+    }>;
+    smtp?: Partial<{
+      host: string;
+      port: number;
+      secure: boolean;
+      user: string;
+      pass: string;
+      fromName: string;
+      fromEmail: string;
       enabled: boolean;
     }>;
   }) =>
@@ -343,8 +401,76 @@ export const api = {
         hasWebhookSecret: boolean;
         botUsername: string;
       };
+      smtp: {
+        enabled: boolean;
+        host: string;
+        port: number;
+        secure: boolean;
+        user: string;
+        hasPass: boolean;
+        fromName: string;
+        fromEmail: string;
+      };
     }>('/api/admin/app-settings', {
       method: 'PATCH',
       body: JSON.stringify(body),
     }),
+  adminSendEmailTest: (to: string) =>
+    request<{
+      ok: boolean;
+      messageId?: string;
+      message: string;
+      to: string;
+    }>('/api/admin/email/test', {
+      method: 'POST',
+      body: JSON.stringify({ to }),
+    }),
+  adminEmailTemplates: () =>
+    request<
+      {
+        key: string;
+        name: string;
+        description: string;
+        subject: string;
+        bodyHtml: string;
+        bodyText: string;
+        enabled: boolean;
+        updatedAt: string;
+      }[]
+    >('/api/admin/email-templates'),
+  updateEmailTemplate: (
+    key: string,
+    body: Partial<{
+      name: string;
+      description: string;
+      subject: string;
+      bodyHtml: string;
+      bodyText: string;
+      enabled: boolean;
+    }>,
+  ) =>
+    request<{
+      key: string;
+      name: string;
+      description: string;
+      subject: string;
+      bodyHtml: string;
+      bodyText: string;
+      enabled: boolean;
+      updatedAt: string;
+    }>(`/api/admin/email-templates/${key}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  resetEmailTemplate: (key: string) =>
+    request<{
+      key: string;
+      name: string;
+      description: string;
+      subject: string;
+      bodyHtml: string;
+      bodyText: string;
+      enabled: boolean;
+      updatedAt: string;
+    }>(`/api/admin/email-templates/${key}/reset`, { method: 'POST' }),
 };

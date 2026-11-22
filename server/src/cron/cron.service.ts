@@ -13,6 +13,7 @@ import type { CronJobKey } from '../store/types';
 export class CronJobsService implements OnModuleInit {
   private readonly logger = new Logger(CronJobsService.name);
   private priceRefreshRunning = false;
+  private historyBackfillRunning = false;
   private announcementsRunning = false;
 
   constructor(
@@ -72,6 +73,10 @@ export class CronJobsService implements OnModuleInit {
     }
     if (key === 'price_refresh') {
       await this.handlePriceRefresh();
+      return;
+    }
+    if (key === 'history_backfill') {
+      await this.handleHistoryBackfill();
       return;
     }
     if (key === 'daily_digest') {
@@ -134,6 +139,35 @@ export class CronJobsService implements OnModuleInit {
       this.logger.error(`LTP refresh failed: ${message}`);
     } finally {
       this.priceRefreshRunning = false;
+    }
+  }
+
+  /** Batched 1Y OHLCV load — ~25 tickers per run, not the full universe. */
+  async handleHistoryBackfill() {
+    if (!(await this.guard('history_backfill', 'history-backfill'))) return;
+    if (this.historyBackfillRunning) {
+      this.logger.warn(
+        'Skipping history backfill — previous run still in progress',
+      );
+      return;
+    }
+    this.historyBackfillRunning = true;
+    const run = await this.startRun('history-backfill');
+    try {
+      const result = await this.market.backfillHistoryBatch(25);
+      await this.finishRun(
+        run.id,
+        'ok',
+        result.skipped
+          ? `Skipped (${result.reason})`
+          : `Batch ${result.updated}/${result.attempted}; coverage ${result.coverage.complete}/${result.coverage.total}`,
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'unknown error';
+      await this.finishRun(run.id, 'error', message);
+      this.logger.error(`History backfill failed: ${message}`);
+    } finally {
+      this.historyBackfillRunning = false;
     }
   }
 

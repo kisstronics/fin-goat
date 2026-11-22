@@ -1,4 +1,7 @@
-/** Liquid NSE universe used by Admin → Sync all tickers (Yahoo `.NS` symbols). */
+/**
+ * Curated liquid NSE names used for sector/industry enrichment and as a
+ * fallback when the live NSE EQUITY_L.csv fetch fails.
+ */
 export interface UniverseStock {
   symbol: string;
   name: string;

@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { v4 as uuid } from 'uuid';
+import { EmailService } from '../email/email.service';
 import { StoreService } from '../store/store.service';
 import type { NseAnnouncement, Ticker } from '../store/types';
 import { TelegramService } from '../telegram/telegram.service';
@@ -32,6 +33,7 @@ export class AnnouncementsService {
   constructor(
     private readonly store: StoreService,
     private readonly telegram: TelegramService,
+    private readonly email: EmailService,
   ) {}
 
   private nseHeaders() {
@@ -236,6 +238,18 @@ export class AnnouncementsService {
       if (!user.notifyEmail && !user.notifyTelegram) continue;
 
       if (user.notifyEmail) {
+        const sent = await this.email.notifyUser({
+          user,
+          templateKey: 'nse_announcement',
+          title,
+          body,
+          extraVars: { symbol: announcement.symbol },
+        });
+        if (!sent.ok) {
+          this.logger.warn(
+            `Announcement email failed for ${user.id}: ${sent.error}`,
+          );
+        }
         await this.store.createAlert({
           id: uuid(),
           userId: user.id,
@@ -243,7 +257,7 @@ export class AnnouncementsService {
           title,
           body,
           createdAt: stamp,
-          status: 'sent',
+          status: sent.ok ? 'sent' : 'failed',
         });
       }
       if (user.notifyTelegram && user.telegramChatId) {

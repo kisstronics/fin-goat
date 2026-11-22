@@ -17,6 +17,8 @@ type Tab =
   | 'plans'
   | 'features'
   | 'signin'
+  | 'email'
+  | 'emailTemplates'
   | 'telegram'
   | 'cron';
 
@@ -37,6 +39,29 @@ type TelegramForm = {
   hasBotToken: boolean;
   hasWebhookSecret: boolean;
   botUsername: string;
+};
+
+type SmtpForm = {
+  enabled: boolean;
+  host: string;
+  port: number;
+  secure: boolean;
+  user: string;
+  pass: string;
+  fromName: string;
+  fromEmail: string;
+  hasPass: boolean;
+};
+
+type EmailTemplateRow = {
+  key: string;
+  name: string;
+  description: string;
+  subject: string;
+  bodyHtml: string;
+  bodyText: string;
+  enabled: boolean;
+  updatedAt: string;
 };
 
 export function AdminPage() {
@@ -64,32 +89,53 @@ export function AdminPage() {
   const [announceSyncNote, setAnnounceSyncNote] = useState('');
   const [googleForm, setGoogleForm] = useState<GoogleForm | null>(null);
   const [telegramForm, setTelegramForm] = useState<TelegramForm | null>(null);
+  const [smtpForm, setSmtpForm] = useState<SmtpForm | null>(null);
+  const [emailTemplates, setEmailTemplates] = useState<EmailTemplateRow[]>([]);
+  const [selectedTemplateKey, setSelectedTemplateKey] = useState('');
+  const [templateDraft, setTemplateDraft] = useState<EmailTemplateRow | null>(
+    null,
+  );
   const [testPhone, setTestPhone] = useState('');
   const [testNote, setTestNote] = useState('');
   const [testBusy, setTestBusy] = useState(false);
+  const [testEmailTo, setTestEmailTo] = useState('');
+  const [testEmailNote, setTestEmailNote] = useState('');
+  const [testEmailBusy, setTestEmailBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [telegramSaved, setTelegramSaved] = useState(false);
+  const [smtpSaved, setSmtpSaved] = useState(false);
+  const [templateSaved, setTemplateSaved] = useState(false);
   const [error, setError] = useState('');
   const [syncBusy, setSyncBusy] = useState(false);
   const [refreshBusy, setRefreshBusy] = useState(false);
+  const [historyBusy, setHistoryBusy] = useState(false);
   const [syncNote, setSyncNote] = useState('');
+  const [historyCoverage, setHistoryCoverage] = useState<{
+    total: number;
+    complete: number;
+    minBars: number;
+  } | null>(null);
 
   useEffect(() => {
     void (async () => {
       try {
-        const [ov, u, t, p, f, c, cronCfg, settings] = await Promise.all([
-          api.adminOverview(),
-          api.adminUsers(),
-          api.adminTickers(),
-          api.adminPlans(),
-          api.adminFeatures(),
-          api.cronRuns(),
-          api.cronSettings(),
-          api.adminAppSettings(),
-        ]);
+        const [ov, u, t, p, f, c, cronCfg, settings, templates, coverage] =
+          await Promise.all([
+            api.adminOverview(),
+            api.adminUsers(),
+            api.adminTickers(),
+            api.adminPlans(),
+            api.adminFeatures(),
+            api.cronRuns(),
+            api.cronSettings(),
+            api.adminAppSettings(),
+            api.adminEmailTemplates(),
+            api.adminHistoryCoverage(),
+          ]);
         setOverview(ov);
         setUsers(u);
         setTickers(t);
+        setHistoryCoverage(coverage);
         setPlans(p);
         setFeatures(f);
         setCronRuns(c);
@@ -116,6 +162,22 @@ export function AdminPage() {
           hasWebhookSecret: settings.telegram.hasWebhookSecret,
           botUsername: settings.telegram.botUsername,
         });
+        setSmtpForm({
+          enabled: settings.smtp.enabled,
+          host: settings.smtp.host,
+          port: settings.smtp.port,
+          secure: settings.smtp.secure,
+          user: settings.smtp.user,
+          pass: '',
+          fromName: settings.smtp.fromName,
+          fromEmail: settings.smtp.fromEmail,
+          hasPass: settings.smtp.hasPass,
+        });
+        setEmailTemplates(templates);
+        if (templates[0]) {
+          setSelectedTemplateKey(templates[0].key);
+          setTemplateDraft({ ...templates[0] });
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Admin load failed');
       }
@@ -138,7 +200,7 @@ export function AdminPage() {
       setTickers(await api.adminTickers());
       setOverview(await api.adminOverview());
       setSyncNote(
-        `Synced ${result.universeSize} symbols · created ${result.created} · updated ${result.updated} · priced ${result.priceRefresh.updated}/${result.priceRefresh.attempted}. ${result.source}`,
+        `Synced ${result.universeSize} symbols · created ${result.created} · updated ${result.updated}. ${result.source}. ${result.priceRefresh.note || 'Price refresh started in background.'}`,
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ticker sync failed');
@@ -154,6 +216,7 @@ export function AdminPage() {
     try {
       const result = await api.refreshTickerPrices();
       setTickers(await api.adminTickers());
+      setHistoryCoverage(await api.adminHistoryCoverage());
       setSyncNote(
         `LTP refresh: ${result.updated}/${result.attempted} updated` +
           (result.failed.length
@@ -164,6 +227,28 @@ export function AdminPage() {
       setError(err instanceof Error ? err.message : 'Price refresh failed');
     } finally {
       setRefreshBusy(false);
+    }
+  }
+
+  async function onBackfillHistory() {
+    setHistoryBusy(true);
+    setSyncNote('');
+    setError('');
+    try {
+      const result = await api.backfillHistory(25);
+      setHistoryCoverage(result.coverage);
+      setTickers(await api.adminTickers());
+      setSyncNote(
+        result.skipped
+          ? `History backfill skipped (${result.reason})`
+          : `History batch: ${result.updated}/${result.attempted} · coverage ${result.coverage.complete}/${result.coverage.total} tickers with ≥${result.coverage.minBars} daily bars`,
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'History backfill failed',
+      );
+    } finally {
+      setHistoryBusy(false);
     }
   }
 
@@ -223,6 +308,108 @@ export function AdminPage() {
     } catch (err) {
       setError(
         err instanceof Error ? err.message : 'Could not save Telegram settings',
+      );
+    }
+  }
+
+  async function onSaveSmtp(e: FormEvent) {
+    e.preventDefault();
+    if (!smtpForm) return;
+    setSmtpSaved(false);
+    setError('');
+    try {
+      const next = await api.updateAdminAppSettings({
+        smtp: {
+          enabled: smtpForm.enabled,
+          host: smtpForm.host,
+          port: Number(smtpForm.port) || 587,
+          secure: smtpForm.secure,
+          user: smtpForm.user,
+          pass: smtpForm.pass || undefined,
+          fromName: smtpForm.fromName,
+          fromEmail: smtpForm.fromEmail,
+        },
+      });
+      setSmtpForm({
+        enabled: next.smtp.enabled,
+        host: next.smtp.host,
+        port: next.smtp.port,
+        secure: next.smtp.secure,
+        user: next.smtp.user,
+        pass: '',
+        fromName: next.smtp.fromName,
+        fromEmail: next.smtp.fromEmail,
+        hasPass: next.smtp.hasPass,
+      });
+      setSmtpSaved(true);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'Could not save SMTP settings',
+      );
+    }
+  }
+
+  async function onSendEmailTest() {
+    setTestEmailBusy(true);
+    setTestEmailNote('');
+    setError('');
+    try {
+      const result = await api.adminSendEmailTest(testEmailTo);
+      setTestEmailNote(`${result.message} → ${result.to}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Test email failed');
+    } finally {
+      setTestEmailBusy(false);
+    }
+  }
+
+  function selectTemplate(key: string) {
+    const row = emailTemplates.find((t) => t.key === key);
+    setSelectedTemplateKey(key);
+    setTemplateDraft(row ? { ...row } : null);
+    setTemplateSaved(false);
+  }
+
+  async function onSaveTemplate(e: FormEvent) {
+    e.preventDefault();
+    if (!templateDraft) return;
+    setTemplateSaved(false);
+    setError('');
+    try {
+      const next = await api.updateEmailTemplate(templateDraft.key, {
+        name: templateDraft.name,
+        description: templateDraft.description,
+        subject: templateDraft.subject,
+        bodyHtml: templateDraft.bodyHtml,
+        bodyText: templateDraft.bodyText,
+        enabled: templateDraft.enabled,
+      });
+      setEmailTemplates((rows) =>
+        rows.map((r) => (r.key === next.key ? next : r)),
+      );
+      setTemplateDraft({ ...next });
+      setTemplateSaved(true);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'Could not save email template',
+      );
+    }
+  }
+
+  async function onResetTemplate() {
+    if (!templateDraft) return;
+    setError('');
+    setTemplateSaved(false);
+    try {
+      const next = await api.resetEmailTemplate(templateDraft.key);
+      setEmailTemplates((rows) =>
+        rows.map((r) => (r.key === next.key ? next : r)),
+      );
+      setTemplateDraft({ ...next });
+      setTemplateSaved(true);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'Could not reset email template',
       );
     }
   }
@@ -318,6 +505,8 @@ export function AdminPage() {
     { id: 'plans', label: 'Plans' },
     { id: 'features', label: 'Features' },
     { id: 'signin', label: 'Sign-in' },
+    { id: 'email', label: 'Email' },
+    { id: 'emailTemplates', label: 'Email Templates' },
     { id: 'telegram', label: 'Telegram' },
     { id: 'cron', label: 'Cron' },
   ];
@@ -328,8 +517,8 @@ export function AdminPage() {
         <p className="eyebrow">Admin</p>
         <h1>Console</h1>
         <p className="muted">
-          Users, CRN tickers, plans, features, Google Sign-in, Telegram, and job
-          runs.
+          Users, CRN tickers, plans, features, Google Sign-in, SMTP email,
+          templates, Telegram, and job runs.
         </p>
       </header>
 
@@ -407,7 +596,7 @@ export function AdminPage() {
             <button
               type="button"
               className="btn primary"
-              disabled={syncBusy || refreshBusy}
+              disabled={syncBusy || refreshBusy || historyBusy}
               onClick={() => void onSyncTickers()}
             >
               {syncBusy ? 'Syncing tickers…' : 'Sync all tickers'}
@@ -415,17 +604,34 @@ export function AdminPage() {
             <button
               type="button"
               className="btn secondary"
-              disabled={syncBusy || refreshBusy}
+              disabled={syncBusy || refreshBusy || historyBusy}
               onClick={() => void onRefreshPrices()}
             >
               {refreshBusy ? 'Refreshing LTP…' : 'Refresh prices now'}
             </button>
+            <button
+              type="button"
+              className="btn secondary"
+              disabled={syncBusy || refreshBusy || historyBusy}
+              onClick={() => void onBackfillHistory()}
+            >
+              {historyBusy
+                ? 'Backfilling 1Y history…'
+                : 'Backfill 1Y history (batch)'}
+            </button>
           </div>
           <p className="muted tiny">
-            Sync loads the NSE liquid universe (~100 names), then pulls LTP /
-            SMA50 / SMA200 / 52W from Yahoo Finance (free chart API). Prices also
-            refresh automatically every hour.
+            Sync loads the full NSE equity master list (~2,000–2,700 symbols from
+            EQUITY_L.csv), then starts Yahoo LTP refresh in the background. 1Y
+            daily OHLCV is loaded in batches (admin button or cron every 20m) —
+            not all tickers at once. Opening a stock page also pulls 1Y on demand.
           </p>
+          {historyCoverage && (
+            <p className="muted tiny">
+              History coverage: {historyCoverage.complete}/{historyCoverage.total}{' '}
+              tickers with ≥{historyCoverage.minBars} daily bars
+            </p>
+          )}
           {syncNote && <p className="positive">{syncNote}</p>}
           <ul className="holding-list">
             {tickers.map((t) => (
@@ -575,6 +781,268 @@ export function AdminPage() {
             Save sign-in settings
           </button>
         </form>
+      )}
+
+      {tab === 'email' && smtpForm && (
+        <form
+          className="panel-block form-grid"
+          onSubmit={(e) => void onSaveSmtp(e)}
+        >
+          <h2>SMTP email</h2>
+          <p className="muted">
+            Stored in <code>app_settings</code>. Used for screener digests, NSE
+            announcement alerts, and expense reminders when users enable email
+            notifications.
+          </p>
+
+          <label className="toggle-row">
+            <input
+              type="checkbox"
+              checked={smtpForm.enabled}
+              onChange={(e) =>
+                setSmtpForm({ ...smtpForm, enabled: e.target.checked })
+              }
+            />
+            Enable email notifications
+          </label>
+
+          <label>
+            SMTP host
+            <input
+              value={smtpForm.host}
+              onChange={(e) =>
+                setSmtpForm({ ...smtpForm, host: e.target.value })
+              }
+              placeholder="smtp.gmail.com"
+              autoComplete="off"
+            />
+          </label>
+
+          <label>
+            Port
+            <input
+              type="number"
+              value={smtpForm.port}
+              onChange={(e) =>
+                setSmtpForm({
+                  ...smtpForm,
+                  port: Number(e.target.value) || 587,
+                })
+              }
+              placeholder="587"
+            />
+          </label>
+
+          <label className="toggle-row">
+            <input
+              type="checkbox"
+              checked={smtpForm.secure}
+              onChange={(e) =>
+                setSmtpForm({ ...smtpForm, secure: e.target.checked })
+              }
+            />
+            Use TLS/SSL (secure)
+          </label>
+
+          <label>
+            Username
+            <input
+              value={smtpForm.user}
+              onChange={(e) =>
+                setSmtpForm({ ...smtpForm, user: e.target.value })
+              }
+              placeholder="apikey or SMTP user"
+              autoComplete="off"
+            />
+          </label>
+
+          <label>
+            Password
+            <input
+              type="password"
+              value={smtpForm.pass}
+              onChange={(e) =>
+                setSmtpForm({ ...smtpForm, pass: e.target.value })
+              }
+              placeholder={
+                smtpForm.hasPass
+                  ? '•••••••• (leave blank to keep)'
+                  : 'SMTP password / app password'
+              }
+              autoComplete="new-password"
+            />
+          </label>
+
+          <label>
+            From name
+            <input
+              value={smtpForm.fromName}
+              onChange={(e) =>
+                setSmtpForm({ ...smtpForm, fromName: e.target.value })
+              }
+              placeholder="Fin Goat"
+            />
+          </label>
+
+          <label>
+            From email
+            <input
+              type="email"
+              value={smtpForm.fromEmail}
+              onChange={(e) =>
+                setSmtpForm({ ...smtpForm, fromEmail: e.target.value })
+              }
+              placeholder="alerts@example.com"
+            />
+          </label>
+
+          {smtpSaved && <p className="positive">SMTP settings saved</p>}
+          <button className="btn primary" type="submit">
+            Save SMTP settings
+          </button>
+        </form>
+      )}
+
+      {tab === 'email' && (
+        <div className="panel-block form-grid">
+          <h2>Send test email</h2>
+          <p className="muted">
+            Sends the <code>test_email</code> template using the saved SMTP
+            settings.
+          </p>
+          <label>
+            Recipient email
+            <input
+              type="email"
+              value={testEmailTo}
+              onChange={(e) => setTestEmailTo(e.target.value)}
+              placeholder="you@example.com"
+            />
+          </label>
+          {testEmailNote && <p className="positive">{testEmailNote}</p>}
+          <button
+            type="button"
+            className="btn secondary"
+            disabled={testEmailBusy || !testEmailTo.trim()}
+            onClick={() => void onSendEmailTest()}
+          >
+            {testEmailBusy ? 'Sending…' : 'Send test email'}
+          </button>
+        </div>
+      )}
+
+      {tab === 'emailTemplates' && (
+        <div className="page-stack">
+          <div className="chip-row wrap">
+            {emailTemplates.map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                className={`chip${selectedTemplateKey === t.key ? ' active' : ''}`}
+                onClick={() => selectTemplate(t.key)}
+              >
+                {t.name}
+              </button>
+            ))}
+          </div>
+
+          {templateDraft && (
+            <form
+              className="panel-block form-grid"
+              onSubmit={(e) => void onSaveTemplate(e)}
+            >
+              <h2>{templateDraft.name}</h2>
+              <p className="muted tiny">{templateDraft.description}</p>
+              <p className="muted tiny">
+                Key: <code>{templateDraft.key}</code>
+              </p>
+
+              <label className="toggle-row">
+                <input
+                  type="checkbox"
+                  checked={templateDraft.enabled}
+                  onChange={(e) =>
+                    setTemplateDraft({
+                      ...templateDraft,
+                      enabled: e.target.checked,
+                    })
+                  }
+                />
+                Template enabled
+              </label>
+
+              <label>
+                Display name
+                <input
+                  value={templateDraft.name}
+                  onChange={(e) =>
+                    setTemplateDraft({
+                      ...templateDraft,
+                      name: e.target.value,
+                    })
+                  }
+                />
+              </label>
+
+              <label>
+                Subject
+                <input
+                  value={templateDraft.subject}
+                  onChange={(e) =>
+                    setTemplateDraft({
+                      ...templateDraft,
+                      subject: e.target.value,
+                    })
+                  }
+                />
+              </label>
+
+              <label>
+                HTML body
+                <textarea
+                  rows={10}
+                  value={templateDraft.bodyHtml}
+                  onChange={(e) =>
+                    setTemplateDraft({
+                      ...templateDraft,
+                      bodyHtml: e.target.value,
+                    })
+                  }
+                />
+              </label>
+
+              <label>
+                Plain-text body
+                <textarea
+                  rows={8}
+                  value={templateDraft.bodyText}
+                  onChange={(e) =>
+                    setTemplateDraft({
+                      ...templateDraft,
+                      bodyText: e.target.value,
+                    })
+                  }
+                />
+              </label>
+
+              {templateSaved && (
+                <p className="positive">Email template saved</p>
+              )}
+              <div className="quick-links">
+                <button className="btn primary" type="submit">
+                  Save template
+                </button>
+                <button
+                  type="button"
+                  className="btn secondary"
+                  onClick={() => void onResetTemplate()}
+                >
+                  Reset to default
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
       )}
 
       {tab === 'telegram' && telegramForm && (

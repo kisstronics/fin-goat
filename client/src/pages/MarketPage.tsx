@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { formatInr } from '../lib/format';
 import type {
@@ -411,7 +412,16 @@ function ScreenerPanel() {
               <tr key={`${r.screener}-${r.tickerId}-${r.matchedAt}`}>
                 <td>{r.screener.replace(/_/g, ' ')}</td>
                 <td>
-                  <strong>{r.ticker?.symbol || r.tickerId}</strong>
+                  {r.ticker?.symbol ? (
+                    <Link
+                      className="text-link"
+                      to={`/market/${r.ticker.symbol}`}
+                    >
+                      <strong>{r.ticker.symbol}</strong>
+                    </Link>
+                  ) : (
+                    <strong>{r.tickerId}</strong>
+                  )}
                   {r.ticker?.exchange && (
                     <span className="muted tiny"> {r.ticker.exchange}</span>
                   )}
@@ -680,7 +690,9 @@ function StocksPanel() {
               return (
                 <tr key={t.id}>
                   <td>
-                    <strong>{t.symbol}</strong>
+                    <Link className="text-link" to={`/market/${t.symbol}`}>
+                      <strong>{t.symbol}</strong>
+                    </Link>
                     <span className="muted tiny"> {t.exchange}</span>
                   </td>
                   <td>{t.name}</td>

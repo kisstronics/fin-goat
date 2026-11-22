@@ -93,6 +93,34 @@ export interface TelegramSettings {
   botUsername: string;
 }
 
+export interface SmtpSettings {
+  enabled: boolean;
+  host: string;
+  port: number;
+  secure: boolean;
+  user: string;
+  pass: string;
+  fromName: string;
+  fromEmail: string;
+}
+
+export type EmailTemplateKey =
+  | 'screener_digest'
+  | 'nse_announcement'
+  | 'expense_reminder'
+  | 'test_email';
+
+export interface EmailTemplate {
+  key: EmailTemplateKey;
+  name: string;
+  description: string;
+  subject: string;
+  bodyHtml: string;
+  bodyText: string;
+  enabled: boolean;
+  updatedAt: string;
+}
+
 export interface Plan {
   id: PlanId;
   name: string;
@@ -185,9 +213,51 @@ export interface CronRun {
 export type CronJobKey =
   | 'screener_10m'
   | 'price_refresh'
+  | 'history_backfill'
   | 'daily_digest'
   | 'expense_reminders'
   | 'nse_announcements';
+
+export interface PriceBar {
+  tickerId: string;
+  date: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+export type ChartRange =
+  | '1d'
+  | '1w'
+  | '1m'
+  | '3m'
+  | '6m'
+  | '1y'
+  | '3y'
+  | '5y'
+  | 'max';
+
+export interface StockScorecardItem {
+  key: string;
+  label: string;
+  rating: 'High' | 'Avg' | 'Low';
+  summary: string;
+}
+
+export interface StockDetail {
+  ticker: Ticker;
+  change: number;
+  changePct: number;
+  dayHigh: number;
+  dayLow: number;
+  scorecard: StockScorecardItem[];
+  peers: Ticker[];
+  announcements: NseAnnouncement[];
+  historyDays: number;
+  historyComplete: boolean;
+}
 
 export interface NseAnnouncement {
   id: string;

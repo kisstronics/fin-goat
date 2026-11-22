@@ -13,6 +13,7 @@ import { PrivacyPage } from './pages/PrivacyPage';
 import { RecurringPage } from './pages/RecurringPage';
 import { MarketPage } from './pages/MarketPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { StockDetailPage } from './pages/StockDetailPage';
 
 function RootGate() {
   const { user, loading } = useAuth();
@@ -77,6 +78,14 @@ export default function App() {
         element={
           <Protected>
             <MarketPage />
+          </Protected>
+        }
+      />
+      <Route
+        path="/market/:symbol"
+        element={
+          <Protected>
+            <StockDetailPage />
           </Protected>
         }
       />

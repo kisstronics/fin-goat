@@ -1677,3 +1677,170 @@ button.text-link {
 .chart-caption {
   margin: 0.35rem 0 0;
 }
+
+/* ——— Stock detail (Tickertape-style) ——— */
+.stock-detail-top {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.stock-detail-layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.stock-side {
+  position: sticky;
+  top: 4.5rem;
+}
+
+.stock-side-head {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  margin-bottom: 0.75rem;
+}
+
+.stock-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  font-size: 0.85rem;
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface-2));
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.stock-title {
+  font-family: 'Fraunces', serif;
+  font-size: 1.25rem;
+  margin: 0;
+  line-height: 1.25;
+}
+
+.stock-ltp {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin: 0.5rem 0 1rem;
+}
+
+.stock-ltp strong {
+  font-size: 1.65rem;
+  font-weight: 700;
+}
+
+.stock-trade-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.btn.stock-sell {
+  background: color-mix(in srgb, var(--danger) 16%, var(--surface));
+  color: var(--danger);
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--line));
+}
+
+.btn.stock-buy {
+  background: color-mix(in srgb, var(--ok) 18%, var(--surface));
+  color: var(--ok);
+  border: 1px solid color-mix(in srgb, var(--ok) 40%, var(--line));
+}
+
+.stock-scorecard {
+  margin-top: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.score-row-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.2rem;
+}
+
+.score-pill {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.15rem 0.45rem;
+  border-radius: 6px;
+}
+
+.score-pill.score-high {
+  background: color-mix(in srgb, var(--ok) 18%, transparent);
+  color: var(--ok);
+}
+
+.score-pill.score-avg {
+  background: color-mix(in srgb, #f59e0b 18%, transparent);
+  color: #d97706;
+}
+
+.score-pill.score-low {
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+  color: var(--danger);
+}
+
+.stock-tabs {
+  margin-bottom: 0.75rem;
+}
+
+.stock-metric-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  padding: 0.75rem 0;
+}
+
+.stock-info-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.chip.static {
+  pointer-events: none;
+  cursor: default;
+  opacity: 0.95;
+}
+
+.stock-peer-link {
+  text-decoration: none;
+  color: inherit;
+  width: 100%;
+}
+
+.stock-price-chart.down .chart-area {
+  fill: color-mix(in srgb, var(--danger) 16%, transparent);
+}
+
+.stock-price-chart.down .chart-path {
+  stroke: var(--danger);
+}
+
+@media (max-width: 900px) {
+  .stock-detail-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .stock-side {
+    position: static;
+  }
+
+  .stock-info-cards {
+    grid-template-columns: 1fr;
+  }
+}
