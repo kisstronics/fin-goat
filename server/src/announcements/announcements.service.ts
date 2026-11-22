@@ -270,28 +270,54 @@ export class AnnouncementsService {
     }
   }
 
+  /** Keep only filings from the lookback window (max ~1 calendar day). */
+  private isWithinLookback(
+    record: { announcedAt?: string; sortDate?: string },
+    from: Date,
+  ) {
+    const stamp = record.announcedAt || record.sortDate;
+    if (!stamp) return true;
+    return new Date(stamp).getTime() >= from.getTime();
+  }
+
+  private async ingestRows(
+    rows: NseRawAnnouncement[],
+    from: Date,
+    bySymbol: Map<string, string[]>,
+  ) {
+    let inserted = 0;
+    let notified = 0;
+    for (const raw of rows) {
+      const record = this.toRecord(raw);
+      if (!record) continue;
+      if (!this.isWithinLookback(record, from)) continue;
+
+      const created = await this.store.insertAnnouncementIfNew(record);
+      if (!created) continue;
+      inserted += 1;
+
+      const subscribers = bySymbol.get(record.symbol);
+      if (!subscribers?.length) continue;
+      await this.notifyUsers(created, subscribers);
+      notified += subscribers.length;
+    }
+    return { inserted, notified };
+  }
+
   /**
-   * Cron entry: pull recent NSE filings for watched symbols, store new ones,
-   * notify subscribed users.
+   * Cron entry: pull NSE filings from the last day, store any that are not
+   * already in the system, and notify users who watch that symbol (and have
+   * email/Telegram preferences enabled).
    */
   async syncAndNotify() {
     const coverage = await this.store.listAnnouncementWatchCoverage();
-    if (!coverage.length) {
-      return {
-        watchedSymbols: 0,
-        fetched: 0,
-        inserted: 0,
-        notified: 0,
-        detail: 'No users watching announcement stocks',
-      };
-    }
-
     const bySymbol = new Map(
       coverage.map((c) => [c.symbol.toUpperCase(), c.userIds]),
     );
     const to = new Date();
     const from = new Date();
-    from.setDate(from.getDate() - 2);
+    from.setHours(0, 0, 0, 0);
+    from.setDate(from.getDate() - 1);
 
     let fetched = 0;
     let inserted = 0;
@@ -303,25 +329,18 @@ export class AnnouncementsService {
       const rows = await this.fetchFromNse({ from, to });
       marketWideOk = true;
       fetched += rows.length;
-      for (const raw of rows) {
-        const record = this.toRecord(raw);
-        if (!record) continue;
-        const subscribers = bySymbol.get(record.symbol);
-        if (!subscribers?.length) continue;
-        const created = await this.store.insertAnnouncementIfNew(record);
-        if (!created) continue;
-        inserted += 1;
-        await this.notifyUsers(created, subscribers);
-        notified += subscribers.length;
-      }
+      const result = await this.ingestRows(rows, from, bySymbol);
+      inserted += result.inserted;
+      notified += result.notified;
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'market-wide fetch failed';
+      const message =
+        err instanceof Error ? err.message : 'market-wide fetch failed';
       errors.push(message);
       this.logger.warn(`NSE market-wide fetch failed: ${message}`);
     }
 
-    // Per-symbol only when the market-wide pull failed.
-    if (!marketWideOk) {
+    // Per-symbol fallback only when market-wide pull failed and someone is watching.
+    if (!marketWideOk && coverage.length) {
       for (const item of coverage) {
         try {
           const rows = await this.fetchFromNse({
@@ -330,15 +349,9 @@ export class AnnouncementsService {
             to,
           });
           fetched += rows.length;
-          for (const raw of rows) {
-            const record = this.toRecord(raw);
-            if (!record) continue;
-            const created = await this.store.insertAnnouncementIfNew(record);
-            if (!created) continue;
-            inserted += 1;
-            await this.notifyUsers(created, item.userIds);
-            notified += item.userIds.length;
-          }
+          const result = await this.ingestRows(rows, from, bySymbol);
+          inserted += result.inserted;
+          notified += result.notified;
         } catch (err) {
           const message =
             err instanceof Error ? err.message : `fetch ${item.symbol} failed`;

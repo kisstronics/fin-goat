@@ -1008,25 +1008,45 @@ function Pager({
   onNext: () => void;
 }) {
   return (
-    <div className="quick-links">
+    <div className="table-pager">
       <button
         type="button"
-        className="btn secondary"
+        className="icon-btn"
         disabled={safePage <= 1}
         onClick={onPrev}
+        aria-label="Previous page"
+        title="Previous"
       >
-        Previous
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+          <path
+            d="M15 6l-6 6 6 6"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
       </button>
       <span className="muted tiny">
         Page {safePage} / {totalPages}
       </span>
       <button
         type="button"
-        className="btn secondary"
+        className="icon-btn"
         disabled={safePage >= totalPages}
         onClick={onNext}
+        aria-label="Next page"
+        title="Next"
       >
-        Next
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+          <path
+            d="M9 6l6 6-6 6"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
       </button>
     </div>
   );

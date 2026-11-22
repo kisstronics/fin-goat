@@ -107,43 +107,6 @@ export class PortfolioService {
       .map(([type, value]) => ({ type, value }))
       .sort((a, b) => b.value - a.value);
 
-    const actions: string[] = [];
-    const today = new Date().getDate();
-    const recurring = await this.store.listRecurring(userId);
-    const dueSoon = recurring.filter((r) => {
-      if (!r.active || r.kind !== 'expense' || r.dayOfMonth == null) return false;
-      const delta = r.dayOfMonth - today;
-      return delta >= 0 && delta <= 3;
-    });
-    for (const exp of dueSoon.slice(0, 3)) {
-      actions.push(
-        `Expense “${exp.name}” deduction on day ${exp.dayOfMonth} · ₹${Math.round(exp.amount).toLocaleString('en-IN')}.`,
-      );
-    }
-    const fd = holdings.find((h) => h.assetType === 'fd');
-    if (fd?.meta?.maturity) {
-      actions.push(`FD “${fd.name}” matures on ${String(fd.meta.maturity)}.`);
-    }
-    const mf = holdings.find((h) => h.assetType === 'mutual_fund' && h.meta?.sip);
-    if (mf) {
-      actions.push(`SIP of ₹${mf.meta?.sip} due for ${mf.name}.`);
-    }
-    const lending = assets.find((h) => h.assetType === 'cash_lending');
-    if (lending) {
-      actions.push(
-        `Cash lending receivable: ${lending.name} · ${Math.round(lending.currentValue).toLocaleString('en-IN')}`,
-      );
-    }
-    if (liabilities[0]) {
-      const loanLabel =
-        typeof liabilities[0].meta?.loanType === 'string'
-          ? String(liabilities[0].meta.loanType)
-          : 'loan';
-      actions.push(
-        `${loanLabel} EMI reminder: ${liabilities[0].meta?.emi ? `₹${liabilities[0].meta.emi}` : liabilities[0].name}.`,
-      );
-    }
-
     return {
       netWorth,
       totalAssets,
@@ -156,7 +119,6 @@ export class PortfolioService {
       investments: assets,
       loans: liabilities,
       holdings,
-      actions,
       updatedAt: new Date().toISOString(),
     };
   }

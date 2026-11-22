@@ -87,7 +87,7 @@ const CRON_JOB_META: Record<
     schedule: 'Every 15 minutes',
     expression: '*/15 * * * *',
     description:
-      'Pulls NSE corporate announcements for user-watched stocks and sends Telegram alerts.',
+      'Pulls day-old NSE corporate announcements, stores new filings, and alerts users who watch those stocks.',
     settingKey: 'cron_nse_announcements_enabled',
     expressionKey: 'cron_nse_announcements_expr',
   },

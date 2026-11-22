@@ -271,6 +271,19 @@ a {
   background: var(--surface-2);
 }
 
+.icon-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.table-pager {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.65rem;
+}
+
 .signout-btn {
   color: var(--muted);
   font-size: 0.78rem;
