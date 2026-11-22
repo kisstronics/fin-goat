@@ -55,7 +55,11 @@ export function AdminPage() {
   const [features, setFeatures] = useState<FeatureFlag[]>([]);
   const [cronRuns, setCronRuns] = useState<CronRun[]>([]);
   const [cronSettings, setCronSettings] = useState<CronSettings | null>(null);
+  const [cronExprs, setCronExprs] = useState<Partial<Record<CronJobKey, string>>>(
+    {},
+  );
   const [cronBusy, setCronBusy] = useState(false);
+  const [cronSaved, setCronSaved] = useState('');
   const [googleForm, setGoogleForm] = useState<GoogleForm | null>(null);
   const [telegramForm, setTelegramForm] = useState<TelegramForm | null>(null);
   const [testPhone, setTestPhone] = useState('');
@@ -88,6 +92,11 @@ export function AdminPage() {
         setFeatures(f);
         setCronRuns(c);
         setCronSettings(cronCfg);
+        setCronExprs(
+          Object.fromEntries(
+            cronCfg.jobs.map((j) => [j.key, j.expression]),
+          ) as Partial<Record<CronJobKey, string>>,
+        );
         setGoogleForm({
           enabled: settings.google.enabled,
           clientId: settings.google.clientId,
@@ -220,6 +229,7 @@ export function AdminPage() {
     if (!cronSettings) return;
     setCronBusy(true);
     setError('');
+    setCronSaved('');
     try {
       const next = await api.updateCronSettings({
         masterEnabled: !cronSettings.masterEnabled,
@@ -238,11 +248,44 @@ export function AdminPage() {
     if (!current) return;
     setCronBusy(true);
     setError('');
+    setCronSaved('');
     try {
       const next = await api.updateCronSettings({
         jobs: { [key]: !current.enabled },
       });
       setCronSettings(next);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not update cron');
+    } finally {
+      setCronBusy(false);
+    }
+  }
+
+  async function saveCronExpression(key: CronJobKey) {
+    const expression = (cronExprs[key] || '').trim();
+    if (!expression) {
+      setError('Cron expression cannot be empty');
+      return;
+    }
+    setCronBusy(true);
+    setError('');
+    setCronSaved('');
+    try {
+      const next = await api.updateCronSettings({
+        expressions: { [key]: expression },
+      });
+      setCronSettings(next);
+      setCronExprs(
+        Object.fromEntries(
+          next.jobs.map((j) => [j.key, j.expression]),
+        ) as Partial<Record<CronJobKey, string>>,
+      );
+      const job = next.jobs.find((j) => j.key === key);
+      setCronSaved(
+        job
+          ? `Saved ${job.name}: ${job.expression} (${job.schedule})`
+          : 'Cron schedule saved',
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not update cron');
     } finally {
@@ -657,9 +700,11 @@ export function AdminPage() {
             <section className="panel-block">
               <h2>Cron controls</h2>
               <p className="muted">
-                Turn scheduled jobs on or off. Manual ticker sync / price refresh
-                from the Tickers tab still work when crons are off.
+                Turn jobs on/off and edit cron expressions (5 fields: minute hour
+                day month weekday). Manual ticker sync / price refresh from the
+                Tickers tab still work when crons are off.
               </p>
+              {cronSaved && <p className="positive">{cronSaved}</p>}
 
               <div className="holding-card" style={{ marginBottom: 12 }}>
                 <div className="holding-main">
@@ -684,6 +729,8 @@ export function AdminPage() {
                 {cronSettings.jobs.map((job) => {
                   const effective =
                     cronSettings.masterEnabled && job.enabled;
+                  const dirty =
+                    (cronExprs[job.key] || '').trim() !== job.expression;
                   return (
                     <li key={job.key} className="holding-card">
                       <div className="holding-main">
@@ -704,6 +751,36 @@ export function AdminPage() {
                           onClick={() => void toggleCronJob(job.key)}
                         >
                           {job.enabled ? 'On' : 'Off'}
+                        </button>
+                      </div>
+                      <label style={{ display: 'block', marginTop: 10 }}>
+                        Cron expression
+                        <input
+                          value={cronExprs[job.key] ?? job.expression}
+                          onChange={(e) =>
+                            setCronExprs((prev) => ({
+                              ...prev,
+                              [job.key]: e.target.value,
+                            }))
+                          }
+                          placeholder="e.g. */10 * * * *"
+                          autoComplete="off"
+                          spellCheck={false}
+                        />
+                      </label>
+                      <p className="muted tiny">
+                        Examples: <code>*/10 * * * *</code> every 10m ·{' '}
+                        <code>0 * * * *</code> hourly · <code>0 7 * * *</code>{' '}
+                        daily 7:00 · <code>0 8 * * *</code> daily 8:00
+                      </p>
+                      <div className="quick-links" style={{ marginTop: 8 }}>
+                        <button
+                          type="button"
+                          className="btn secondary"
+                          disabled={cronBusy || !dirty}
+                          onClick={() => void saveCronExpression(job.key)}
+                        >
+                          {dirty ? 'Save schedule' : 'Saved'}
                         </button>
                       </div>
                     </li>

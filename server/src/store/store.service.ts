@@ -38,27 +38,66 @@ import type {
 
 const CRON_JOB_META: Record<
   CronJobKey,
-  { name: string; schedule: string; description: string; settingKey: string }
+  {
+    name: string;
+    schedule: string;
+    expression: string;
+    description: string;
+    settingKey: string;
+    expressionKey: string;
+  }
 > = {
   screener_10m: {
     name: 'Screener scan',
     schedule: 'Every 10 minutes',
+    expression: '*/10 * * * *',
     description: 'Runs all enabled screeners and queues alerts.',
     settingKey: 'cron_screener_10m_enabled',
+    expressionKey: 'cron_screener_10m_expr',
   },
   price_refresh: {
     name: 'Yahoo LTP refresh',
     schedule: 'Every hour',
+    expression: '0 * * * *',
     description: 'Refreshes ticker prices, then re-runs screeners.',
     settingKey: 'cron_price_refresh_enabled',
+    expressionKey: 'cron_price_refresh_expr',
   },
   daily_digest: {
     name: 'Daily digest',
     schedule: 'Every day at 8:00',
+    expression: '0 8 * * *',
     description: 'Sends screener digest alerts to opted-in users.',
     settingKey: 'cron_daily_digest_enabled',
+    expressionKey: 'cron_daily_digest_expr',
+  },
+  expense_reminders: {
+    name: 'Expense deduction reminders',
+    schedule: 'Every day at 7:00',
+    expression: '0 7 * * *',
+    description:
+      'Notifies users about expenses due today (by scheduled deduction date).',
+    settingKey: 'cron_expense_reminders_enabled',
+    expressionKey: 'cron_expense_reminders_expr',
   },
 };
+
+function describeCronExpression(expression: string, fallback: string) {
+  const trimmed = expression.trim();
+  const known: Record<string, string> = {
+    '*/10 * * * *': 'Every 10 minutes',
+    '*/5 * * * *': 'Every 5 minutes',
+    '*/15 * * * *': 'Every 15 minutes',
+    '*/30 * * * *': 'Every 30 minutes',
+    '0 * * * *': 'Every hour',
+    '0 */2 * * *': 'Every 2 hours',
+    '0 8 * * *': 'Every day at 8:00',
+    '0 7 * * *': 'Every day at 7:00',
+    '0 9 * * *': 'Every day at 9:00',
+    '0 18 * * *': 'Every day at 18:00',
+  };
+  return known[trimmed] || fallback || `Cron: ${trimmed}`;
+}
 
 @Injectable()
 export class StoreService implements OnModuleInit, OnModuleDestroy {
@@ -265,6 +304,11 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
       cron_screener_10m_enabled: 'true',
       cron_price_refresh_enabled: 'true',
       cron_daily_digest_enabled: 'true',
+      cron_screener_10m_expr: CRON_JOB_META.screener_10m.expression,
+      cron_price_refresh_expr: CRON_JOB_META.price_refresh.expression,
+      cron_daily_digest_expr: CRON_JOB_META.daily_digest.expression,
+      cron_expense_reminders_enabled: 'true',
+      cron_expense_reminders_expr: CRON_JOB_META.expense_reminders.expression,
     };
 
     for (const [key, value] of Object.entries(defaults)) {
@@ -870,10 +914,13 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
     for (const key of Object.keys(CRON_JOB_META) as CronJobKey[]) {
       const meta = CRON_JOB_META[key];
       const raw = await this.getSetting(meta.settingKey);
+      const exprRaw = (await this.getSetting(meta.expressionKey))?.trim();
+      const expression = exprRaw || meta.expression;
       jobs.push({
         key,
         name: meta.name,
-        schedule: meta.schedule,
+        expression,
+        schedule: describeCronExpression(expression, meta.schedule),
         description: meta.description,
         // Missing key (legacy DB) → enabled
         enabled: raw !== 'false',
@@ -888,6 +935,7 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
   async updateCronSettings(patch: {
     masterEnabled?: boolean;
     jobs?: Partial<Record<CronJobKey, boolean>>;
+    expressions?: Partial<Record<CronJobKey, string>>;
   }): Promise<CronSettings> {
     if (patch.masterEnabled !== undefined) {
       await this.setSetting(
@@ -904,6 +952,19 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
         const meta = CRON_JOB_META[key];
         if (!meta) continue;
         await this.setSetting(meta.settingKey, enabled ? 'true' : 'false');
+      }
+    }
+    if (patch.expressions) {
+      for (const [key, expression] of Object.entries(patch.expressions) as [
+        CronJobKey,
+        string | undefined,
+      ][]) {
+        if (expression === undefined) continue;
+        const meta = CRON_JOB_META[key];
+        if (!meta) continue;
+        const trimmed = expression.trim();
+        if (!trimmed) continue;
+        await this.setSetting(meta.expressionKey, trimmed);
       }
     }
     return this.getCronSettings();
@@ -1409,6 +1470,15 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
        WHERE user_id = $1
        ORDER BY kind ASC, name ASC`,
       [userId],
+    );
+    return rows.map((r) => this.mapRecurring(r));
+  }
+
+  async listActiveRecurringExpenses(): Promise<RecurringItem[]> {
+    const { rows } = await this.query(
+      `SELECT * FROM recurring_items
+       WHERE active = true AND kind = 'expense'
+       ORDER BY user_id ASC, name ASC`,
     );
     return rows.map((r) => this.mapRecurring(r));
   }

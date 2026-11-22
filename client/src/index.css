@@ -1500,3 +1500,109 @@ label {
     color: #fff;
   }
 }
+
+.insight-grid {
+  display: grid;
+  gap: 1.25rem;
+}
+
+@media (min-width: 900px) {
+  .insight-grid {
+    grid-template-columns: 1.2fr 1fr;
+    align-items: start;
+  }
+}
+
+.insight-card h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.chart-donut-wrap {
+  display: grid;
+  gap: 1rem;
+  justify-items: center;
+  margin-top: 0.75rem;
+}
+
+.chart-donut {
+  width: min(100%, 240px);
+  height: auto;
+}
+
+.chart-donut-center-label {
+  fill: var(--muted);
+  font-size: 11px;
+}
+
+.chart-donut-center-value {
+  fill: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.chart-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.chart-legend li {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.5rem;
+  align-items: center;
+  font-size: 0.88rem;
+}
+
+.chart-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.chart-line-wrap {
+  margin-top: 0.5rem;
+}
+
+.chart-line {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.chart-grid {
+  stroke: var(--line);
+  stroke-width: 1;
+  stroke-dasharray: 3 4;
+}
+
+.chart-axis {
+  fill: var(--muted);
+  font-size: 10px;
+}
+
+.chart-area {
+  fill: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.chart-path {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.chart-dot {
+  fill: var(--accent);
+  stroke: var(--bg-elevated);
+  stroke-width: 2;
+}
+
+.chart-caption {
+  margin: 0.35rem 0 0;
+}

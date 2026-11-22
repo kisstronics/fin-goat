@@ -11,7 +11,7 @@ import { LoginPage } from './pages/LoginPage';
 import { PortfolioPage } from './pages/PortfolioPage';
 import { PrivacyPage } from './pages/PrivacyPage';
 import { RecurringPage } from './pages/RecurringPage';
-import { ScreenersPage } from './pages/ScreenersPage';
+import { MarketPage } from './pages/MarketPage';
 import { SettingsPage } from './pages/SettingsPage';
 
 function RootGate() {
@@ -73,13 +73,14 @@ export default function App() {
         }
       />
       <Route
-        path="/screeners"
+        path="/market"
         element={
           <Protected>
-            <ScreenersPage />
+            <MarketPage />
           </Protected>
         }
       />
+      <Route path="/screeners" element={<Navigate to="/market" replace />} />
       <Route
         path="/recurring"
         element={

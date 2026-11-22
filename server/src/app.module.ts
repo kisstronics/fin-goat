@@ -4,6 +4,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { AdminModule } from './admin/admin.module';
 import { AuthModule } from './auth/auth.module';
 import { CronJobsModule } from './cron/cron.module';
+import { MarketModule } from './market/market.module';
 import { PortfolioModule } from './portfolio/portfolio.module';
 import { RecurringModule } from './recurring/recurring.module';
 import { ScreenersModule } from './screeners/screeners.module';
@@ -24,6 +25,7 @@ import { UsersModule } from './users/users.module';
     PortfolioModule,
     RecurringModule,
     ScreenersModule,
+    MarketModule,
     AdminModule,
     CronJobsModule,
     TelegramModule,

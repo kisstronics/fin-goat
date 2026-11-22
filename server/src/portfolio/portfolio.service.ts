@@ -22,7 +22,45 @@ export class PortfolioService {
   }
 
   private monthlyAmount(item: RecurringItem) {
-    return item.frequency === 'yearly' ? item.amount / 12 : item.amount;
+    if (item.frequency === 'yearly') return item.amount / 12;
+    if (item.frequency === 'quarterly') return item.amount / 3;
+    return item.amount;
+  }
+
+  private projectAtMonths(
+    dash: Awaited<ReturnType<PortfolioService['dashboard']>>,
+    monthsAhead: number,
+    monthlyIncome: number,
+    monthlyExpenses: number,
+    monthlyEmi: number,
+    monthlySip: number,
+  ) {
+    const monthlySurplus = monthlyIncome - monthlyExpenses;
+    const cashFlow = monthlySurplus - monthlyEmi - monthlySip;
+    const assetAdd =
+      monthsAhead * monthlySip + monthsAhead * Math.max(cashFlow, 0);
+    const cashBurn = monthsAhead * Math.max(-cashFlow, 0);
+    const liabilityReduce = Math.min(
+      dash.totalLiabilities,
+      monthsAhead * monthlyEmi,
+    );
+    const projectedAssets = Math.max(
+      0,
+      dash.totalAssets + assetAdd - Math.min(dash.totalAssets * 0.05, cashBurn),
+    );
+    const projectedLiabilities = Math.max(
+      0,
+      dash.totalLiabilities - liabilityReduce,
+    );
+    return {
+      projectedAssets,
+      projectedLiabilities,
+      projectedNetWorth: projectedAssets - projectedLiabilities,
+      monthlySurplus,
+      cashFlow,
+      liabilityReduce,
+      monthlySip,
+    };
   }
 
   async dashboard(userId: string) {
@@ -70,6 +108,18 @@ export class PortfolioService {
       .sort((a, b) => b.value - a.value);
 
     const actions: string[] = [];
+    const today = new Date().getDate();
+    const recurring = await this.store.listRecurring(userId);
+    const dueSoon = recurring.filter((r) => {
+      if (!r.active || r.kind !== 'expense' || r.dayOfMonth == null) return false;
+      const delta = r.dayOfMonth - today;
+      return delta >= 0 && delta <= 3;
+    });
+    for (const exp of dueSoon.slice(0, 3)) {
+      actions.push(
+        `Expense “${exp.name}” deduction on day ${exp.dayOfMonth} · ₹${Math.round(exp.amount).toLocaleString('en-IN')}.`,
+      );
+    }
     const fd = holdings.find((h) => h.assetType === 'fd');
     if (fd?.meta?.maturity) {
       actions.push(`FD “${fd.name}” matures on ${String(fd.meta.maturity)}.`);
@@ -217,26 +267,14 @@ export class PortfolioService {
       return s + (Number.isFinite(sip) ? sip : 0);
     }, 0);
 
-    const monthlySurplus = monthlyIncome - monthlyExpenses;
-    // Cash left after living costs, EMIs, and SIPs (can be negative).
-    const cashFlow = monthlySurplus - monthlyEmi - monthlySip;
-
-    const assetAdd = monthsAhead * monthlySip + monthsAhead * Math.max(cashFlow, 0);
-    const cashBurn = monthsAhead * Math.max(-cashFlow, 0);
-    const liabilityReduce = Math.min(
-      dash.totalLiabilities,
-      monthsAhead * monthlyEmi,
+    const projected = this.projectAtMonths(
+      dash,
+      monthsAhead,
+      monthlyIncome,
+      monthlyExpenses,
+      monthlyEmi,
+      monthlySip,
     );
-
-    const projectedAssets = Math.max(
-      0,
-      dash.totalAssets + assetAdd - Math.min(dash.totalAssets * 0.05, cashBurn),
-    );
-    const projectedLiabilities = Math.max(
-      0,
-      dash.totalLiabilities - liabilityReduce,
-    );
-    const projectedNetWorth = projectedAssets - projectedLiabilities;
 
     return {
       asOf: now.toISOString(),
@@ -244,27 +282,106 @@ export class PortfolioService {
       targetYear,
       monthsAhead,
       currentNetWorth: dash.netWorth,
-      projectedNetWorth,
-      projectedAssets,
-      projectedLiabilities,
+      projectedNetWorth: projected.projectedNetWorth,
+      projectedAssets: projected.projectedAssets,
+      projectedLiabilities: projected.projectedLiabilities,
       monthlyIncome,
       monthlyExpenses,
       monthlyEmi,
       monthlySip,
-      monthlySurplus,
+      monthlySurplus: projected.monthlySurplus,
       breakdown: [
         { label: 'Current net worth', amount: dash.netWorth },
-        { label: `SIP contributions (${monthsAhead} mo)`, amount: monthsAhead * monthlySip },
+        {
+          label: `SIP contributions (${monthsAhead} mo)`,
+          amount: monthsAhead * monthlySip,
+        },
         {
           label: `Net cash after EMI/SIP (${monthsAhead} mo)`,
-          amount: monthsAhead * cashFlow,
+          amount: monthsAhead * projected.cashFlow,
         },
         {
           label: `Loan paydown estimate (${monthsAhead} mo)`,
-          amount: liabilityReduce,
+          amount: projected.liabilityReduce,
         },
-        { label: 'Projected net worth', amount: projectedNetWorth },
+        { label: 'Projected net worth', amount: projected.projectedNetWorth },
       ],
+    };
+  }
+
+  async projectSeries(userId: string, years = 10) {
+    const horizon = Math.min(30, Math.max(1, Math.floor(years) || 10));
+    const now = new Date();
+    const [dash, recurring] = await Promise.all([
+      this.dashboard(userId),
+      this.store.listRecurring(userId),
+    ]);
+    const active = recurring.filter((r) => r.active);
+    const monthlyIncome = active
+      .filter((r) => r.kind === 'income')
+      .reduce((s, r) => s + this.monthlyAmount(r), 0);
+    const monthlyExpenses = active
+      .filter((r) => r.kind === 'expense')
+      .reduce((s, r) => s + this.monthlyAmount(r), 0);
+    const monthlyEmi = dash.loans.reduce((s, h) => {
+      const emi = Number(h.meta?.emi);
+      return s + (Number.isFinite(emi) ? emi : 0);
+    }, 0);
+    const monthlySip = dash.investments.reduce((s, h) => {
+      const sip = Number(h.meta?.sip);
+      return s + (Number.isFinite(sip) ? sip : 0);
+    }, 0);
+
+    const points: {
+      year: number;
+      month: number;
+      label: string;
+      monthsAhead: number;
+      projectedNetWorth: number;
+      projectedAssets: number;
+      projectedLiabilities: number;
+    }[] = [];
+    for (let y = 0; y <= horizon; y += 1) {
+      const target = new Date(now.getFullYear() + y, now.getMonth(), 1);
+      const start = new Date(now.getFullYear(), now.getMonth(), 1);
+      const monthsAhead =
+        (target.getFullYear() - start.getFullYear()) * 12 +
+        (target.getMonth() - start.getMonth());
+      const projected = this.projectAtMonths(
+        dash,
+        monthsAhead,
+        monthlyIncome,
+        monthlyExpenses,
+        monthlyEmi,
+        monthlySip,
+      );
+      points.push({
+        year: target.getFullYear(),
+        month: target.getMonth() + 1,
+        label:
+          y === 0
+            ? 'Now'
+            : target.toLocaleString('en-IN', {
+                month: 'short',
+                year: 'numeric',
+              }),
+        monthsAhead,
+        projectedNetWorth: projected.projectedNetWorth,
+        projectedAssets: projected.projectedAssets,
+        projectedLiabilities: projected.projectedLiabilities,
+      });
+    }
+
+    return {
+      asOf: now.toISOString(),
+      years: horizon,
+      currentNetWorth: dash.netWorth,
+      monthlyIncome,
+      monthlyExpenses,
+      monthlyEmi,
+      monthlySip,
+      monthlySurplus: monthlyIncome - monthlyExpenses,
+      points,
     };
   }
 

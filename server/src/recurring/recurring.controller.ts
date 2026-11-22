@@ -57,7 +57,7 @@ export class RecurringController {
       amount: number;
       category: string;
       frequency: RecurringFrequency;
-      dayOfMonth: number;
+      dayOfMonth: number | null;
       notes: string;
       active: boolean;
     }>,

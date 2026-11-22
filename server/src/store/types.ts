@@ -18,7 +18,7 @@ export type ScreenerKey =
   | 'above_50pct_from_low';
 
 export type RecurringKind = 'income' | 'expense';
-export type RecurringFrequency = 'monthly' | 'yearly';
+export type RecurringFrequency = 'monthly' | 'quarterly' | 'yearly';
 
 export interface RecurringItem {
   id: string;
@@ -185,12 +185,16 @@ export interface CronRun {
 export type CronJobKey =
   | 'screener_10m'
   | 'price_refresh'
-  | 'daily_digest';
+  | 'daily_digest'
+  | 'expense_reminders';
 
 export interface CronJobSetting {
   key: CronJobKey;
   name: string;
+  /** Human-readable summary of the schedule. */
   schedule: string;
+  /** Standard 5-field cron expression (min hour day month weekday). */
+  expression: string;
   description: string;
   enabled: boolean;
 }

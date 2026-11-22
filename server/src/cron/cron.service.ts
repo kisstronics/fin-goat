@@ -1,7 +1,9 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { SchedulerRegistry } from '@nestjs/schedule';
+import { CronJob } from 'cron';
 import { v4 as uuid } from 'uuid';
 import { MarketService } from '../market/market.service';
+import { RecurringService } from '../recurring/recurring.service';
 import { ScreenersService } from '../screeners/screeners.service';
 import { StoreService } from '../store/store.service';
 import type { CronJobKey } from '../store/types';
@@ -15,10 +17,67 @@ export class CronJobsService implements OnModuleInit {
     private readonly store: StoreService,
     private readonly screeners: ScreenersService,
     private readonly market: MarketService,
+    private readonly recurring: RecurringService,
+    private readonly schedulerRegistry: SchedulerRegistry,
   ) {}
 
-  onModuleInit() {
+  async onModuleInit() {
+    await this.applySchedules();
     void this.runScreenerJob('bootstrap');
+  }
+
+  /** Re-register cron jobs from Admin → Cron settings. */
+  async applySchedules() {
+    const settings = await this.store.getCronSettings();
+    for (const job of settings.jobs) {
+      this.replaceJob(job.key, job.expression);
+    }
+    this.logger.log(
+      `Cron schedules applied: ${settings.jobs
+        .map((j) => `${j.key}=${j.expression}`)
+        .join(', ')}`,
+    );
+  }
+
+  private jobName(key: CronJobKey) {
+    return `fg_${key}`;
+  }
+
+  private replaceJob(key: CronJobKey, expression: string) {
+    const name = this.jobName(key);
+    try {
+      this.schedulerRegistry.deleteCronJob(name);
+    } catch {
+      // Job not registered yet.
+    }
+
+    const cronJob = CronJob.from({
+      cronTime: expression,
+      onTick: () => {
+        void this.dispatch(key);
+      },
+      start: true,
+    });
+    this.schedulerRegistry.addCronJob(name, cronJob);
+  }
+
+  private async dispatch(key: CronJobKey) {
+    if (key === 'screener_10m') {
+      if (!(await this.guard('screener_10m', 'cron:screener'))) return;
+      void this.runScreenerJob('cron:screener');
+      return;
+    }
+    if (key === 'price_refresh') {
+      await this.handlePriceRefresh();
+      return;
+    }
+    if (key === 'daily_digest') {
+      await this.handleDailyDigest();
+      return;
+    }
+    if (key === 'expense_reminders') {
+      await this.handleExpenseReminders();
+    }
   }
 
   private async startRun(job: string) {
@@ -44,14 +103,7 @@ export class CronJobsService implements OnModuleInit {
     return enabled;
   }
 
-  @Cron(CronExpression.EVERY_10_MINUTES)
-  async handleScreenerCron() {
-    if (!(await this.guard('screener_10m', 'cron:every-10m'))) return;
-    void this.runScreenerJob('cron:every-10m');
-  }
-
-  /** Pull LTP + SMAs from Yahoo Finance chart API every hour. */
-  @Cron(CronExpression.EVERY_HOUR)
+  /** Pull LTP + SMAs from Yahoo Finance chart API. */
   async handlePriceRefresh() {
     if (!(await this.guard('price_refresh', 'yahoo-ltp-refresh'))) return;
     if (this.priceRefreshRunning) {
@@ -72,13 +124,12 @@ export class CronJobsService implements OnModuleInit {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'unknown error';
       await this.finishRun(run.id, 'error', message);
-      this.logger.error(`Hourly LTP refresh failed: ${message}`);
+      this.logger.error(`LTP refresh failed: ${message}`);
     } finally {
       this.priceRefreshRunning = false;
     }
   }
 
-  @Cron(CronExpression.EVERY_DAY_AT_8AM)
   async handleDailyDigest() {
     if (!(await this.guard('daily_digest', 'daily-digest'))) return;
     const run = await this.startRun('daily-digest');
@@ -93,6 +144,23 @@ export class CronJobsService implements OnModuleInit {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'unknown error';
       await this.finishRun(run.id, 'error', message);
+    }
+  }
+
+  async handleExpenseReminders() {
+    if (!(await this.guard('expense_reminders', 'expense-reminders'))) return;
+    const run = await this.startRun('expense-reminders');
+    try {
+      const result = await this.recurring.sendExpenseReminders();
+      await this.finishRun(
+        run.id,
+        'ok',
+        `Due ${result.due}/${result.checked}; notified ${result.notified} users`,
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'unknown error';
+      await this.finishRun(run.id, 'error', message);
+      this.logger.error(`Expense reminders failed: ${message}`);
     }
   }
 

@@ -39,7 +39,7 @@ const USER_LINKS = [
   { to: '/', label: 'Dashboard', end: true },
   { to: '/portfolio', label: 'My Portfolio' },
   { to: '/recurring', label: 'Recurring' },
-  { to: '/screeners', label: 'Screeners' },
+  { to: '/market', label: 'Market' },
   { to: '/settings', label: 'Settings' },
 ];
 
