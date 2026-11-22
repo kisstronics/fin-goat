@@ -1,9 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 import { formatInr } from '../lib/format';
-import type { ScreenerDef, ScreenerKey, ScreenerResultRow, Ticker } from '../types';
+import type {
+  AnnouncementAlertStock,
+  NseAnnouncement,
+  ScreenerDef,
+  ScreenerKey,
+  ScreenerResultRow,
+  Ticker,
+} from '../types';
 
-type MarketTab = 'screener' | 'stocks';
+type MarketTab = 'screener' | 'stocks' | 'watchlist' | 'announcements';
 type SortKey = 'screener' | 'symbol' | 'name' | 'price' | 'sector' | 'matchedAt';
 type StockSortKey = 'symbol' | 'name' | 'price' | 'sector' | 'change' | 'updatedAt';
 
@@ -18,8 +25,9 @@ export function MarketPage() {
         <p className="eyebrow">Market</p>
         <h1>Market intelligence</h1>
         <p className="muted">
-          Screen NSE names or browse live ticker prices. Screens are analytical —
-          not buy/sell recommendations.
+          Screen NSE names, browse prices, manage your stock watchlist, and
+          follow corporate announcements. Screens are analytical — not buy/sell
+          recommendations.
         </p>
       </header>
 
@@ -38,9 +46,30 @@ export function MarketPage() {
         >
           Stocks
         </button>
+        <button
+          type="button"
+          className={`chip${tab === 'watchlist' ? ' active' : ''}`}
+          onClick={() => setTab('watchlist')}
+        >
+          Watchlist
+        </button>
+        <button
+          type="button"
+          className={`chip${tab === 'announcements' ? ' active' : ''}`}
+          onClick={() => setTab('announcements')}
+        >
+          Announcements
+        </button>
       </div>
 
-      {tab === 'screener' ? <ScreenerPanel /> : <StocksPanel />}
+      {tab === 'screener' && <ScreenerPanel />}
+      {tab === 'stocks' && <StocksPanel />}
+      {tab === 'watchlist' && (
+        <WatchlistPanel onOpenAnnouncements={() => setTab('announcements')} />
+      )}
+      {tab === 'announcements' && (
+        <AnnouncementsPanel onOpenWatchlist={() => setTab('watchlist')} />
+      )}
     </div>
   );
 }
@@ -684,6 +713,285 @@ function StocksPanel() {
         onPrev={() => setPage((p) => Math.max(1, p - 1))}
         onNext={() => setPage((p) => Math.min(totalPages, p + 1))}
       />
+    </>
+  );
+}
+
+function WatchlistPanel({
+  onOpenAnnouncements,
+}: {
+  onOpenAnnouncements: () => void;
+}) {
+  const [stocks, setStocks] = useState<AnnouncementAlertStock[]>([]);
+  const [tickerQuery, setTickerQuery] = useState('');
+  const [tickerHits, setTickerHits] = useState<Ticker[]>([]);
+  const [error, setError] = useState('');
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  async function load() {
+    setStocks(await api.announcementAlertStocks());
+  }
+
+  useEffect(() => {
+    void load().catch((err) =>
+      setError(err instanceof Error ? err.message : 'Failed to load watchlist'),
+    );
+  }, []);
+
+  useEffect(() => {
+    const q = tickerQuery.trim();
+    if (q.length < 1) {
+      setTickerHits([]);
+      return;
+    }
+    const handle = window.setTimeout(() => {
+      void api
+        .searchAnnouncementTickers(q)
+        .then(setTickerHits)
+        .catch(() => setTickerHits([]));
+    }, 250);
+    return () => window.clearTimeout(handle);
+  }, [tickerQuery]);
+
+  async function addStock(ticker: Ticker) {
+    setError('');
+    setBusyId(ticker.id);
+    try {
+      await api.addAnnouncementAlertStock(ticker.id);
+      await load();
+      setTickerQuery('');
+      setTickerHits([]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not add stock');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function removeStock(id: string) {
+    setError('');
+    setBusyId(id);
+    try {
+      await api.removeAnnouncementAlertStock(id);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not remove stock');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <>
+      <section className="panel-block form-grid">
+        <div className="panel-head-row">
+          <div>
+            <h2 style={{ margin: 0 }}>Stock watchlist</h2>
+            <p className="muted tiny">
+              Create and manage stocks for NSE announcement alerts. New filings
+              for these names are stored and sent via Telegram/email when
+              notifications are on.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="text-link"
+            onClick={onOpenAnnouncements}
+          >
+            View announcements
+          </button>
+        </div>
+
+        <label>
+          Search & add stock
+          <input
+            value={tickerQuery}
+            onChange={(e) => setTickerQuery(e.target.value)}
+            placeholder="Symbol or company name"
+          />
+        </label>
+
+        {error && <p className="error">{error}</p>}
+
+        {tickerHits.length > 0 && (
+          <ul className="holding-list">
+            {tickerHits.map((t) => {
+              const already = stocks.some((s) => s.tickerId === t.id);
+              return (
+                <li key={t.id} className="holding-card">
+                  <div className="holding-main">
+                    <div>
+                      <h3>
+                        {t.symbol} · {t.exchange}
+                      </h3>
+                      <p className="muted tiny">{t.name}</p>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn secondary"
+                      disabled={already || busyId === t.id}
+                      onClick={() => void addStock(t)}
+                    >
+                      {already
+                        ? 'On watchlist'
+                        : busyId === t.id
+                          ? 'Adding…'
+                          : 'Add'}
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+
+      <section className="panel-block">
+        <div className="panel-head-row">
+          <h2>Your watchlist</h2>
+          <span className="muted tiny">{stocks.length}</span>
+        </div>
+        <ul className="holding-list">
+          {stocks.length === 0 && (
+            <li className="muted">
+              No stocks yet. Search above to add names you want announcement
+              alerts for.
+            </li>
+          )}
+          {stocks.map((s) => (
+            <li key={s.id} className="holding-card">
+              <div className="holding-main">
+                <div>
+                  <h3>
+                    {s.ticker?.symbol || s.tickerId}
+                    {s.ticker?.exchange ? ` · ${s.ticker.exchange}` : ''}
+                  </h3>
+                  <p className="muted tiny">{s.ticker?.name || ''}</p>
+                </div>
+                <button
+                  type="button"
+                  className="linkish"
+                  disabled={busyId === s.id}
+                  onClick={() => void removeStock(s.id)}
+                >
+                  {busyId === s.id ? 'Removing…' : 'Remove'}
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </section>
+    </>
+  );
+}
+
+function AnnouncementsPanel({
+  onOpenWatchlist,
+}: {
+  onOpenWatchlist: () => void;
+}) {
+  const [items, setItems] = useState<NseAnnouncement[]>([]);
+  const [watched, setWatched] = useState<string[]>([]);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function load() {
+    const data = await api.announcements(80);
+    setItems(data.items);
+    setWatched(data.watchedSymbols);
+  }
+
+  useEffect(() => {
+    void load().catch((err) =>
+      setError(err instanceof Error ? err.message : 'Failed to load'),
+    );
+  }, []);
+
+  return (
+    <>
+      <div className="panel-block">
+        <div className="panel-head-row">
+          <div>
+            <h2 style={{ margin: 0 }}>NSE corporate announcements</h2>
+            <p className="muted tiny">
+              Filings for stocks on your watchlist.
+              {watched.length
+                ? ` Watching ${watched.join(', ')}.`
+                : ' No stocks on your watchlist yet.'}
+            </p>
+          </div>
+          <button
+            type="button"
+            className="text-link"
+            onClick={onOpenWatchlist}
+          >
+            Manage watchlist
+          </button>
+        </div>
+        {error && <p className="error">{error}</p>}
+        {!watched.length && (
+          <p className="muted">
+            Add stocks in the Watchlist tab to see filings and get Telegram
+            alerts when NSE publishes announcements.
+          </p>
+        )}
+      </div>
+
+      <ul className="holding-list">
+        {items.length === 0 && watched.length > 0 && (
+          <li className="muted">
+            No stored announcements yet. They appear after the NSE announcements
+            cron runs.
+          </li>
+        )}
+        {items.map((a) => (
+          <li key={a.id} className="holding-card">
+            <div className="holding-main">
+              <div>
+                <p className="eyebrow">{a.symbol}</p>
+                <h3>{a.subject || 'Announcement'}</h3>
+                <p className="muted tiny">{a.companyName}</p>
+              </div>
+              <span className="muted tiny nowrap">
+                {a.announcedAt
+                  ? new Date(a.announcedAt).toLocaleString('en-IN')
+                  : '—'}
+              </span>
+            </div>
+            {a.body && <p className="tiny">{a.body.slice(0, 280)}</p>}
+            <div className="holding-meta">
+              {a.attachmentUrl && (
+                <a
+                  className="text-link"
+                  href={a.attachmentUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Attachment
+                </a>
+              )}
+            </div>
+          </li>
+        ))}
+      </ul>
+
+      <div className="quick-links">
+        <button
+          type="button"
+          className="btn secondary"
+          disabled={busy}
+          onClick={() => {
+            setBusy(true);
+            void load()
+              .catch((err) =>
+                setError(err instanceof Error ? err.message : 'Refresh failed'),
+              )
+              .finally(() => setBusy(false));
+          }}
+        >
+          {busy ? 'Refreshing…' : 'Refresh list'}
+        </button>
+      </div>
     </>
   );
 }

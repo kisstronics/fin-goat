@@ -6,7 +6,9 @@ import type {
   DashboardData,
   FeatureFlag,
   Holding,
+  AnnouncementAlertStock,
   NetWorthProjection,
+  NseAnnouncement,
   Plan,
   ProjectionSeries,
   RecurringItem,
@@ -172,6 +174,34 @@ export const api = {
     request<{ id: string; tickerId: string; ticker?: Ticker }[]>(
       '/api/screeners/watchlist',
     ),
+
+  announcements: (limit = 50) =>
+    request<{ items: NseAnnouncement[]; watchedSymbols: string[] }>(
+      `/api/announcements?limit=${limit}`,
+    ),
+  announcementAlertStocks: () =>
+    request<AnnouncementAlertStock[]>('/api/announcements/alert-stocks'),
+  addAnnouncementAlertStock: (tickerId: string) =>
+    request<AnnouncementAlertStock>('/api/announcements/alert-stocks', {
+      method: 'POST',
+      body: JSON.stringify({ tickerId }),
+    }),
+  removeAnnouncementAlertStock: (id: string) =>
+    request<{ ok: boolean }>(`/api/announcements/alert-stocks/${id}`, {
+      method: 'DELETE',
+    }),
+  searchAnnouncementTickers: (q: string) =>
+    request<Ticker[]>(
+      `/api/announcements/tickers/search?q=${encodeURIComponent(q)}`,
+    ),
+  syncAnnouncements: () =>
+    request<{
+      watchedSymbols: number;
+      fetched: number;
+      inserted: number;
+      notified: number;
+      detail: string;
+    }>('/api/announcements/sync', { method: 'POST' }),
 
   settings: () =>
     request<{

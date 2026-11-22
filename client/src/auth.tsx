@@ -14,20 +14,40 @@ interface AuthContextValue {
   user: User | null;
   loading: boolean;
   statusReady: boolean;
+  statusError: string | null;
   googleEnabled: boolean;
   allowDevLogin: boolean;
   loginDev: (emailOrName: string) => Promise<void>;
   completeTokenLogin: (token: string) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
+  reloadStatus: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+
+async function fetchAuthStatus(retries = 8, delayMs = 400) {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < retries; attempt += 1) {
+    try {
+      return await api.authStatus();
+    } catch (err) {
+      lastError = err;
+      if (attempt < retries - 1) {
+        await new Promise((r) => setTimeout(r, delayMs * (attempt + 1)));
+      }
+    }
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error('Could not reach the API');
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [statusReady, setStatusReady] = useState(false);
+  const [statusError, setStatusError] = useState<string | null>(null);
   const [googleEnabled, setGoogleEnabled] = useState(false);
   const [allowDevLogin, setAllowDevLogin] = useState(false);
 
@@ -42,22 +62,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const reloadStatus = useCallback(async () => {
+    setStatusReady(false);
+    setStatusError(null);
+    try {
+      const status = await fetchAuthStatus();
+      setGoogleEnabled(status.enabled);
+      setAllowDevLogin(status.allowDevLogin);
+      setStatusError(null);
+    } catch (err) {
+      setGoogleEnabled(false);
+      setAllowDevLogin(false);
+      setStatusError(
+        err instanceof Error
+          ? err.message
+          : 'Could not reach the API. Is the server running?',
+      );
+    } finally {
+      setStatusReady(true);
+    }
+  }, []);
+
   useEffect(() => {
-    void api
-      .authStatus()
-      .then((status) => {
-        setGoogleEnabled(status.enabled);
-        setAllowDevLogin(status.allowDevLogin);
-      })
-      .catch(() => {
-        setGoogleEnabled(false);
-        setAllowDevLogin(false);
-      })
-      .finally(() => {
-        setStatusReady(true);
-      });
+    void reloadStatus();
     void refresh();
-  }, [refresh]);
+  }, [refresh, reloadStatus]);
 
   const loginDev = useCallback(async (emailOrName: string) => {
     const result = await api.loginDev(emailOrName);
@@ -82,23 +111,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       loading,
       statusReady,
+      statusError,
       googleEnabled,
       allowDevLogin,
       loginDev,
       completeTokenLogin,
       logout,
       refresh,
+      reloadStatus,
     }),
     [
       user,
       loading,
       statusReady,
+      statusError,
       googleEnabled,
       allowDevLogin,
       loginDev,
       completeTokenLogin,
       logout,
       refresh,
+      reloadStatus,
     ],
   );
 

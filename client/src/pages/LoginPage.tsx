@@ -10,9 +10,11 @@ export function LoginPage() {
     user,
     loading,
     statusReady,
+    statusError,
     loginDev,
     googleEnabled,
     allowDevLogin,
+    reloadStatus,
   } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const [params] = useSearchParams();
@@ -22,6 +24,7 @@ export function LoginPage() {
   >([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [retryBusy, setRetryBusy] = useState(false);
 
   useEffect(() => {
     const fromQuery = params.get('error');
@@ -145,9 +148,33 @@ export function LoginPage() {
           <p className="error">{error}</p>
         )}
 
-        {!allowDevLogin && !googleEnabled && (
+        {statusError && (
+          <div className="panel-block" style={{ marginTop: 16 }}>
+            <p className="error">
+              Can’t reach the API right now. {statusError}
+            </p>
+            <p className="muted tiny">
+              If you just started <code>npm run dev</code>, wait a moment for
+              the server, then retry.
+            </p>
+            <button
+              type="button"
+              className="btn secondary"
+              disabled={retryBusy}
+              onClick={() => {
+                setRetryBusy(true);
+                void reloadStatus().finally(() => setRetryBusy(false));
+              }}
+            >
+              {retryBusy ? 'Retrying…' : 'Retry connection'}
+            </button>
+          </div>
+        )}
+
+        {!statusError && !allowDevLogin && !googleEnabled && (
           <p className="error">
-            No sign-in methods are enabled. Configure Google in Admin → Sign-in.
+            No sign-in methods are enabled. Configure Google in Admin → Sign-in,
+            or turn on demo login there.
           </p>
         )}
       </div>

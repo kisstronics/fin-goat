@@ -17,6 +17,7 @@ import {
 } from './seed';
 import type {
   AlertLog,
+  AnnouncementAlertStock,
   AppSetting,
   CronJobKey,
   CronJobSetting,
@@ -25,6 +26,7 @@ import type {
   FeatureFlag,
   GoogleAuthSettings,
   Holding,
+  NseAnnouncement,
   Plan,
   PlanId,
   RecurringItem,
@@ -79,6 +81,15 @@ const CRON_JOB_META: Record<
       'Notifies users about expenses due today (by scheduled deduction date).',
     settingKey: 'cron_expense_reminders_enabled',
     expressionKey: 'cron_expense_reminders_expr',
+  },
+  nse_announcements: {
+    name: 'NSE announcements',
+    schedule: 'Every 15 minutes',
+    expression: '*/15 * * * *',
+    description:
+      'Pulls NSE corporate announcements for user-watched stocks and sends Telegram alerts.',
+    settingKey: 'cron_nse_announcements_enabled',
+    expressionKey: 'cron_nse_announcements_expr',
   },
 };
 
@@ -263,11 +274,42 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
 
+      CREATE TABLE IF NOT EXISTS nse_announcements (
+        id UUID PRIMARY KEY,
+        seq_id TEXT UNIQUE NOT NULL,
+        symbol TEXT NOT NULL,
+        company_name TEXT NOT NULL DEFAULT '',
+        isin TEXT,
+        subject TEXT NOT NULL DEFAULT '',
+        body TEXT NOT NULL DEFAULT '',
+        attachment_url TEXT,
+        attachment_size TEXT,
+        announced_at TIMESTAMPTZ,
+        sort_date TIMESTAMPTZ,
+        industry TEXT,
+        raw JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS announcement_alert_stocks (
+        id UUID PRIMARY KEY,
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        ticker_id UUID NOT NULL REFERENCES tickers(id) ON DELETE CASCADE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (user_id, ticker_id)
+      );
+
       CREATE INDEX IF NOT EXISTS idx_holdings_user ON holdings(user_id);
       CREATE INDEX IF NOT EXISTS idx_alerts_user ON alerts(user_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_screener_results_key ON screener_results(screener, matched_at DESC);
       CREATE INDEX IF NOT EXISTS idx_cron_runs_started ON cron_runs(started_at DESC);
       CREATE INDEX IF NOT EXISTS idx_recurring_user ON recurring_items(user_id, kind);
+      CREATE INDEX IF NOT EXISTS idx_nse_announcements_symbol
+        ON nse_announcements(symbol, announced_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_nse_announcements_announced
+        ON nse_announcements(announced_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_announcement_alert_user
+        ON announcement_alert_stocks(user_id);
     `);
 
     await this.query(`
@@ -309,6 +351,8 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
       cron_daily_digest_expr: CRON_JOB_META.daily_digest.expression,
       cron_expense_reminders_enabled: 'true',
       cron_expense_reminders_expr: CRON_JOB_META.expense_reminders.expression,
+      cron_nse_announcements_enabled: 'true',
+      cron_nse_announcements_expr: CRON_JOB_META.nse_announcements.expression,
     };
 
     for (const [key, value] of Object.entries(defaults)) {
@@ -552,6 +596,37 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
       active: Boolean(row.active),
       createdAt: new Date(row.created_at).toISOString(),
       updatedAt: new Date(row.updated_at).toISOString(),
+    };
+  }
+
+  private mapNseAnnouncement(row: QueryResultRow): NseAnnouncement {
+    return {
+      id: row.id,
+      seqId: row.seq_id,
+      symbol: row.symbol,
+      companyName: row.company_name || '',
+      isin: row.isin || undefined,
+      subject: row.subject || '',
+      body: row.body || '',
+      attachmentUrl: row.attachment_url || undefined,
+      attachmentSize: row.attachment_size || undefined,
+      announcedAt: row.announced_at
+        ? new Date(row.announced_at).toISOString()
+        : undefined,
+      sortDate: row.sort_date
+        ? new Date(row.sort_date).toISOString()
+        : undefined,
+      industry: row.industry || undefined,
+      createdAt: new Date(row.created_at).toISOString(),
+    };
+  }
+
+  private mapAnnouncementAlertStock(row: QueryResultRow): AnnouncementAlertStock {
+    return {
+      id: row.id,
+      userId: row.user_id,
+      tickerId: row.ticker_id,
+      createdAt: new Date(row.created_at).toISOString(),
     };
   }
 
@@ -1558,5 +1633,137 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
       [id, userId],
     );
     return (result.rowCount || 0) > 0;
+  }
+
+  // ——— NSE announcements ———
+
+  async insertAnnouncementIfNew(
+    item: Omit<NseAnnouncement, 'createdAt'> & { raw?: Record<string, unknown> },
+  ): Promise<NseAnnouncement | null> {
+    const { rows } = await this.query(
+      `INSERT INTO nse_announcements (
+         id, seq_id, symbol, company_name, isin, subject, body,
+         attachment_url, attachment_size, announced_at, sort_date, industry, raw, created_at
+       ) VALUES (
+         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,NOW()
+       )
+       ON CONFLICT (seq_id) DO NOTHING
+       RETURNING *`,
+      [
+        item.id,
+        item.seqId,
+        item.symbol,
+        item.companyName,
+        item.isin || null,
+        item.subject,
+        item.body,
+        item.attachmentUrl || null,
+        item.attachmentSize || null,
+        item.announcedAt || null,
+        item.sortDate || null,
+        item.industry || null,
+        JSON.stringify(item.raw || {}),
+      ],
+    );
+    return rows[0] ? this.mapNseAnnouncement(rows[0]) : null;
+  }
+
+  async listAnnouncements(opts?: {
+    symbols?: string[];
+    limit?: number;
+  }): Promise<NseAnnouncement[]> {
+    const limit = Math.min(200, Math.max(1, opts?.limit || 50));
+    if (opts?.symbols?.length) {
+      const { rows } = await this.query(
+        `SELECT * FROM nse_announcements
+         WHERE upper(symbol) = ANY($1::text[])
+         ORDER BY COALESCE(announced_at, created_at) DESC
+         LIMIT $2`,
+        [opts.symbols.map((s) => s.toUpperCase()), limit],
+      );
+      return rows.map((r) => this.mapNseAnnouncement(r));
+    }
+    const { rows } = await this.query(
+      `SELECT * FROM nse_announcements
+       ORDER BY COALESCE(announced_at, created_at) DESC
+       LIMIT $1`,
+      [limit],
+    );
+    return rows.map((r) => this.mapNseAnnouncement(r));
+  }
+
+  async listAnnouncementAlertStocks(
+    userId: string,
+  ): Promise<AnnouncementAlertStock[]> {
+    const { rows } = await this.query(
+      `SELECT * FROM announcement_alert_stocks
+       WHERE user_id = $1
+       ORDER BY created_at DESC`,
+      [userId],
+    );
+    return rows.map((r) => this.mapAnnouncementAlertStock(r));
+  }
+
+  async findAnnouncementAlertStock(
+    userId: string,
+    tickerId: string,
+  ): Promise<AnnouncementAlertStock | null> {
+    const { rows } = await this.query(
+      `SELECT * FROM announcement_alert_stocks
+       WHERE user_id = $1 AND ticker_id = $2`,
+      [userId, tickerId],
+    );
+    return rows[0] ? this.mapAnnouncementAlertStock(rows[0]) : null;
+  }
+
+  async addAnnouncementAlertStock(
+    item: AnnouncementAlertStock,
+  ): Promise<AnnouncementAlertStock> {
+    await this.query(
+      `INSERT INTO announcement_alert_stocks (id, user_id, ticker_id, created_at)
+       VALUES ($1,$2,$3,$4)
+       ON CONFLICT (user_id, ticker_id) DO NOTHING`,
+      [item.id, item.userId, item.tickerId, item.createdAt],
+    );
+    return (
+      (await this.findAnnouncementAlertStock(item.userId, item.tickerId)) ||
+      item
+    );
+  }
+
+  async removeAnnouncementAlertStock(
+    userId: string,
+    id: string,
+  ): Promise<boolean> {
+    const result = await this.query(
+      `DELETE FROM announcement_alert_stocks WHERE id = $1 AND user_id = $2`,
+      [id, userId],
+    );
+    return (result.rowCount || 0) > 0;
+  }
+
+  /** Distinct watched symbols across all users, with ticker + subscribers. */
+  async listAnnouncementWatchCoverage(): Promise<
+    { symbol: string; tickerId: string; userIds: string[] }[]
+  > {
+    const { rows } = await this.query<{
+      symbol: string;
+      ticker_id: string;
+      user_ids: string[];
+    }>(
+      `SELECT upper(t.symbol) AS symbol,
+              t.id AS ticker_id,
+              array_agg(DISTINCT a.user_id::text) AS user_ids
+       FROM announcement_alert_stocks a
+       JOIN tickers t ON t.id = a.ticker_id
+       WHERE t.active = true
+       GROUP BY upper(t.symbol), t.id
+       ORDER BY upper(t.symbol)`,
+    );
+    return rows.map((r) => ({
+      symbol: r.symbol,
+      tickerId: r.ticker_id,
+      userIds: r.user_ids || [],
+    }));
   }
 }

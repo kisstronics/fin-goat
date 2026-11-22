@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { CronJob } from 'cron';
 import { v4 as uuid } from 'uuid';
+import { AnnouncementsService } from '../announcements/announcements.service';
 import { MarketService } from '../market/market.service';
 import { RecurringService } from '../recurring/recurring.service';
 import { ScreenersService } from '../screeners/screeners.service';
@@ -12,12 +13,14 @@ import type { CronJobKey } from '../store/types';
 export class CronJobsService implements OnModuleInit {
   private readonly logger = new Logger(CronJobsService.name);
   private priceRefreshRunning = false;
+  private announcementsRunning = false;
 
   constructor(
     private readonly store: StoreService,
     private readonly screeners: ScreenersService,
     private readonly market: MarketService,
     private readonly recurring: RecurringService,
+    private readonly announcements: AnnouncementsService,
     private readonly schedulerRegistry: SchedulerRegistry,
   ) {}
 
@@ -77,6 +80,10 @@ export class CronJobsService implements OnModuleInit {
     }
     if (key === 'expense_reminders') {
       await this.handleExpenseReminders();
+      return;
+    }
+    if (key === 'nse_announcements') {
+      await this.handleNseAnnouncements();
     }
   }
 
@@ -161,6 +168,30 @@ export class CronJobsService implements OnModuleInit {
       const message = err instanceof Error ? err.message : 'unknown error';
       await this.finishRun(run.id, 'error', message);
       this.logger.error(`Expense reminders failed: ${message}`);
+    }
+  }
+
+  async handleNseAnnouncements() {
+    if (!(await this.guard('nse_announcements', 'nse-announcements'))) return;
+    if (this.announcementsRunning) {
+      this.logger.warn('Skipping NSE announcements — previous run still in progress');
+      return;
+    }
+    this.announcementsRunning = true;
+    const run = await this.startRun('nse-announcements');
+    try {
+      const result = await this.announcements.syncAndNotify();
+      await this.finishRun(
+        run.id,
+        'ok',
+        `Watched ${result.watchedSymbols}; fetched ${result.fetched}; new ${result.inserted}; notified ${result.notified}; ${result.detail}`,
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'unknown error';
+      await this.finishRun(run.id, 'error', message);
+      this.logger.error(`NSE announcements failed: ${message}`);
+    } finally {
+      this.announcementsRunning = false;
     }
   }
 
