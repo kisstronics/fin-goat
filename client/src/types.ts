@@ -207,7 +207,32 @@ export type CronJobKey =
   | 'screener_10m'
   | 'price_refresh'
   | 'daily_digest'
-  | 'expense_reminders';
+  | 'expense_reminders'
+  | 'nse_announcements';
+
+export interface NseAnnouncement {
+  id: string;
+  seqId: string;
+  symbol: string;
+  companyName: string;
+  isin?: string;
+  subject: string;
+  body: string;
+  attachmentUrl?: string;
+  attachmentSize?: string;
+  announcedAt?: string;
+  sortDate?: string;
+  industry?: string;
+  createdAt: string;
+}
+
+export interface AnnouncementAlertStock {
+  id: string;
+  userId: string;
+  tickerId: string;
+  createdAt: string;
+  ticker?: Ticker;
+}
 
 export interface CronJobSetting {
   key: CronJobKey;

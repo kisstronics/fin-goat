@@ -60,6 +60,8 @@ export function AdminPage() {
   );
   const [cronBusy, setCronBusy] = useState(false);
   const [cronSaved, setCronSaved] = useState('');
+  const [announceSyncBusy, setAnnounceSyncBusy] = useState(false);
+  const [announceSyncNote, setAnnounceSyncNote] = useState('');
   const [googleForm, setGoogleForm] = useState<GoogleForm | null>(null);
   const [telegramForm, setTelegramForm] = useState<TelegramForm | null>(null);
   const [testPhone, setTestPhone] = useState('');
@@ -705,6 +707,42 @@ export function AdminPage() {
                 Tickers tab still work when crons are off.
               </p>
               {cronSaved && <p className="positive">{cronSaved}</p>}
+              <div className="quick-links" style={{ marginBottom: 12 }}>
+                <button
+                  type="button"
+                  className="btn secondary"
+                  disabled={announceSyncBusy}
+                  onClick={() => {
+                    setAnnounceSyncBusy(true);
+                    setAnnounceSyncNote('');
+                    setError('');
+                    void api
+                      .syncAnnouncements()
+                      .then((r) => {
+                        setAnnounceSyncNote(
+                          `NSE sync: watched ${r.watchedSymbols}, fetched ${r.fetched}, new ${r.inserted}, notified ${r.notified} (${r.detail})`,
+                        );
+                        return api.cronRuns();
+                      })
+                      .then(setCronRuns)
+                      .catch((err) =>
+                        setError(
+                          err instanceof Error
+                            ? err.message
+                            : 'Announcement sync failed',
+                        ),
+                      )
+                      .finally(() => setAnnounceSyncBusy(false));
+                  }}
+                >
+                  {announceSyncBusy
+                    ? 'Syncing NSE announcements…'
+                    : 'Run NSE announcements now'}
+                </button>
+              </div>
+              {announceSyncNote && (
+                <p className="positive">{announceSyncNote}</p>
+              )}
 
               <div className="holding-card" style={{ marginBottom: 12 }}>
                 <div className="holding-main">

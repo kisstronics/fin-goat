@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AdminModule } from './admin/admin.module';
+import { AnnouncementsModule } from './announcements/announcements.module';
 import { AuthModule } from './auth/auth.module';
 import { CronJobsModule } from './cron/cron.module';
 import { MarketModule } from './market/market.module';
@@ -26,6 +27,7 @@ import { UsersModule } from './users/users.module';
     RecurringModule,
     ScreenersModule,
     MarketModule,
+    AnnouncementsModule,
     AdminModule,
     CronJobsModule,
     TelegramModule,

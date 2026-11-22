@@ -970,6 +970,16 @@ label {
   font-size: 0.9rem;
 }
 
+button.text-link {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+  text-align: inherit;
+}
+
 .alloc-list,
 .action-list,
 .holding-list,
