@@ -3,7 +3,9 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { CronJob } from 'cron';
 import { GoogleAuthService } from '../auth/google-auth.service';
+import { CronJobsService } from '../cron/cron.service';
 import { MarketService } from '../market/market.service';
 import { StoreService } from '../store/store.service';
 import type {
@@ -22,6 +24,7 @@ export class AdminService {
     private readonly googleAuth: GoogleAuthService,
     private readonly market: MarketService,
     private readonly telegram: TelegramService,
+    private readonly cronJobs: CronJobsService,
   ) {}
 
   async users() {
@@ -85,11 +88,45 @@ export class AdminService {
     return this.store.getCronSettings();
   }
 
-  updateCronSettings(body: {
+  private assertValidCronExpression(expression: string) {
+    const trimmed = expression.trim();
+    if (!trimmed) {
+      throw new BadRequestException('Cron expression is required');
+    }
+    try {
+      CronJob.from({ cronTime: trimmed, onTick: () => undefined, start: false });
+    } catch {
+      throw new BadRequestException(
+        `Invalid cron expression: ${trimmed}. Use 5 fields (min hour day month weekday), e.g. */10 * * * *`,
+      );
+    }
+    return trimmed;
+  }
+
+  async updateCronSettings(body: {
     masterEnabled?: boolean;
     jobs?: Partial<Record<CronJobKey, boolean>>;
+    expressions?: Partial<Record<CronJobKey, string>>;
   }) {
-    return this.store.updateCronSettings(body);
+    const expressions: Partial<Record<CronJobKey, string>> = {};
+    if (body.expressions) {
+      for (const [key, value] of Object.entries(body.expressions) as [
+        CronJobKey,
+        string | undefined,
+      ][]) {
+        if (value === undefined) continue;
+        expressions[key] = this.assertValidCronExpression(value);
+      }
+    }
+
+    const next = await this.store.updateCronSettings({
+      masterEnabled: body.masterEnabled,
+      jobs: body.jobs,
+      expressions:
+        Object.keys(expressions).length > 0 ? expressions : undefined,
+    });
+    await this.cronJobs.applySchedules();
+    return next;
   }
 
   async overview() {

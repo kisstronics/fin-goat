@@ -174,6 +174,11 @@ export class MarketService {
     };
   }
 
+  async listActiveTickers() {
+    const tickers = await this.store.listTickers();
+    return tickers.filter((t) => t.active);
+  }
+
   /** Refresh LTP + indicators for every active ticker. */
   async refreshAllPrices() {
     const tickers = (await this.store.listTickers()).filter((t) => t.active);

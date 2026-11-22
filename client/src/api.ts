@@ -8,6 +8,7 @@ import type {
   Holding,
   NetWorthProjection,
   Plan,
+  ProjectionSeries,
   RecurringItem,
   RecurringSummary,
   ScreenerDef,
@@ -95,6 +96,10 @@ export const api = {
     request<NetWorthProjection>(
       `/api/portfolio/projection?month=${month}&year=${year}`,
     ),
+  projectionSeries: (years = 10) =>
+    request<ProjectionSeries>(
+      `/api/portfolio/projection-series?years=${years}`,
+    ),
   holdings: () => request<Holding[]>('/api/portfolio'),
   createHolding: (
     body: Partial<Holding> & {
@@ -140,7 +145,12 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
-  updateRecurring: (id: string, body: Partial<RecurringItem>) =>
+  updateRecurring: (
+    id: string,
+    body: Partial<Omit<RecurringItem, 'dayOfMonth'>> & {
+      dayOfMonth?: number | null;
+    },
+  ) =>
     request<RecurringItem>(`/api/recurring/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(body),
@@ -157,6 +167,7 @@ export const api = {
     request<{ count: number; results: ScreenerResultRow[] }>('/api/screeners/run', {
       method: 'POST',
     }),
+  marketTickers: () => request<Ticker[]>('/api/market/tickers'),
   watchlist: () =>
     request<{ id: string; tickerId: string; ticker?: Ticker }[]>(
       '/api/screeners/watchlist',
@@ -249,6 +260,7 @@ export const api = {
   updateCronSettings: (body: {
     masterEnabled?: boolean;
     jobs?: Partial<Record<CronJobKey, boolean>>;
+    expressions?: Partial<Record<CronJobKey, string>>;
   }) =>
     request<CronSettings>('/api/admin/cron-settings', {
       method: 'PATCH',

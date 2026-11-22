@@ -43,6 +43,14 @@ export class PortfolioController {
     );
   }
 
+  @Get('projection-series')
+  projectionSeries(
+    @Req() req: Request & { user: User },
+    @Query('years') years?: string,
+  ) {
+    return this.portfolio.projectSeries(req.user.id, Number(years) || 10);
+  }
+
   @Post()
   create(
     @Req() req: Request & { user: User },

@@ -336,7 +336,7 @@ export function seedHoldings(): Holding[] {
       avgCost: 68.2,
       investedValue: 28120,
       currentValue: 34580,
-      meta: { folio: 'PPFC-8821', sip: 5000 },
+      meta: { folio: 'PPFC-8821', isSip: true, sip: 5000, nav: 83.87 },
       updatedAt: stamp,
     },
     {

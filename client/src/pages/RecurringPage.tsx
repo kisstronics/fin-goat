@@ -43,6 +43,7 @@ export function RecurringPage() {
     category: 'other',
     amount: '',
     frequency: 'monthly' as RecurringFrequency,
+    dayOfMonth: '',
     notes: '',
   });
   const [projMonth, setProjMonth] = useState(now.getMonth() + 1);
@@ -81,6 +82,7 @@ export function RecurringPage() {
       category: kind === 'income' ? 'salary' : 'other',
       amount: '',
       frequency: 'monthly',
+      dayOfMonth: '',
       notes: '',
     });
   }
@@ -94,6 +96,7 @@ export function RecurringPage() {
       category: item.category || 'other',
       amount: String(item.amount),
       frequency: item.frequency,
+      dayOfMonth: item.dayOfMonth != null ? String(item.dayOfMonth) : '',
       notes: item.notes || '',
     });
   }
@@ -102,17 +105,28 @@ export function RecurringPage() {
     e.preventDefault();
     setError('');
     try {
+      const needsDay =
+        form.kind === 'expense' && form.frequency === 'monthly';
+      if (needsDay && !form.dayOfMonth) {
+        setError('Monthly expenses require a deduction date (day of month)');
+        return;
+      }
+      const day = form.dayOfMonth ? Number(form.dayOfMonth) : undefined;
       const payload = {
         kind: form.kind,
         name: form.name,
         category: form.category,
         amount: Number(form.amount) || 0,
         frequency: form.frequency,
+        dayOfMonth: day,
         notes: form.notes || undefined,
         active: true,
       };
       if (editingId) {
-        await api.updateRecurring(editingId, payload);
+        await api.updateRecurring(editingId, {
+          ...payload,
+          dayOfMonth: day ?? null,
+        });
       } else {
         await api.createRecurring(payload);
       }
@@ -156,6 +170,7 @@ export function RecurringPage() {
             <h3>{item.name}</h3>
             <p className="muted tiny">
               {item.frequency}
+              {item.dayOfMonth != null ? ` · day ${item.dayOfMonth}` : ''}
               {!item.active ? ' · paused' : ''}
             </p>
           </div>
@@ -336,9 +351,36 @@ export function RecurringPage() {
               }
             >
               <option value="monthly">Monthly</option>
+              <option value="quarterly">Quarterly</option>
               <option value="yearly">Yearly</option>
             </select>
           </label>
+          {(form.kind === 'expense' || form.dayOfMonth) && (
+            <label>
+              Deduction date (day of month)
+              <input
+                type="number"
+                min={1}
+                max={31}
+                required={form.kind === 'expense' && form.frequency === 'monthly'}
+                value={form.dayOfMonth}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, dayOfMonth: e.target.value }))
+                }
+                placeholder={
+                  form.frequency === 'monthly'
+                    ? 'e.g. 5 for the 5th of each month'
+                    : 'Optional day for reminders'
+                }
+              />
+            </label>
+          )}
+          {form.kind === 'expense' && form.frequency === 'monthly' && (
+            <p className="muted tiny">
+              Required for monthly expenses. Reminder notifications fire on this
+              day via Admin → Cron → Expense deduction reminders.
+            </p>
+          )}
           <label>
             Notes
             <input

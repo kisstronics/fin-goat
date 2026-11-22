@@ -48,6 +48,10 @@ export function PortfolioPage() {
     currentValue: '',
     emi: '',
     rate: '',
+    isSip: false,
+    sip: '',
+    nav: '',
+    units: '',
   });
 
   const investments = useMemo(
@@ -82,7 +86,20 @@ export function PortfolioPage() {
       currentValue: '',
       emi: '',
       rate: '',
+      isSip: false,
+      sip: '',
+      nav: '',
+      units: '',
     });
+  }
+
+  function mfCurrentValue(nav: string, units: string, fallback: string) {
+    const n = Number(nav);
+    const u = Number(units);
+    if (Number.isFinite(n) && n > 0 && Number.isFinite(u) && u > 0) {
+      return String(Math.round(n * u * 100) / 100);
+    }
+    return fallback;
   }
 
   function startEdit(h: Holding) {
@@ -92,6 +109,10 @@ export function PortfolioPage() {
       LOAN_TYPES.includes(h.meta.loanType as LoanType)
         ? (h.meta.loanType as LoanType)
         : 'other';
+    const sipAmount =
+      h.meta?.sip != null && Number.isFinite(Number(h.meta.sip))
+        ? Number(h.meta.sip)
+        : 0;
     setEntryKind(liability ? 'loan' : 'investment');
     setEditingId(h.id);
     setShowForm(true);
@@ -103,6 +124,10 @@ export function PortfolioPage() {
       currentValue: String(Math.abs(h.currentValue) || ''),
       emi: h.meta?.emi != null ? String(h.meta.emi) : '',
       rate: h.meta?.rate != null ? String(h.meta.rate) : '',
+      isSip: Boolean(h.meta?.isSip) || sipAmount > 0,
+      sip: sipAmount > 0 ? String(sipAmount) : '',
+      nav: h.meta?.nav != null ? String(h.meta.nav) : '',
+      units: h.quantity != null ? String(h.quantity) : '',
     });
   }
 
@@ -111,25 +136,61 @@ export function PortfolioPage() {
     setError('');
     try {
       const isLoan = entryKind === 'loan' || form.assetType === 'loan';
+      const isMf = !isLoan && form.assetType === 'mutual_fund';
       const outstanding = Math.abs(Number(form.currentValue) || 0);
       const invested = Number(form.investedValue) || 0;
+      const nav = Number(form.nav) || 0;
+      const units =
+        Number(form.units) ||
+        (isMf && nav > 0 && invested > 0 ? invested / nav : 0);
+      const currentFromNav =
+        isMf && nav > 0 && units > 0 ? Math.round(nav * units * 100) / 100 : 0;
+
+      const existing = editingId
+        ? holdings.find((h) => h.id === editingId)
+        : undefined;
+      const priorMeta = { ...(existing?.meta || {}) };
+      // Drop SIP fields when the SIP option is off so old amounts do not linger.
+      delete priorMeta.isSip;
+      delete priorMeta.sip;
+      delete priorMeta.nav;
+      delete priorMeta.loanType;
+      delete priorMeta.emi;
+      delete priorMeta.rate;
+
+      let meta: Record<string, string | number | boolean> | undefined;
+      if (isLoan) {
+        meta = {
+          ...priorMeta,
+          loanType: form.loanType,
+          ...(form.emi ? { emi: Number(form.emi) } : {}),
+          ...(form.rate ? { rate: Number(form.rate) } : {}),
+        };
+      } else if (isMf) {
+        meta = {
+          ...priorMeta,
+          ...(form.isSip ? { isSip: true } : {}),
+          ...(form.isSip && form.sip ? { sip: Number(form.sip) } : {}),
+          ...(nav > 0 ? { nav } : {}),
+        };
+      } else if (form.assetType === 'cash_lending') {
+        meta = {
+          ...priorMeta,
+          ...(form.rate ? { rate: Number(form.rate) } : {}),
+        };
+      }
+
       const payload = {
         assetType: (isLoan ? 'loan' : form.assetType) as AssetType,
         name: form.name,
         investedValue: invested,
-        currentValue: isLoan ? -outstanding : Number(form.currentValue) || 0,
+        currentValue: isLoan
+          ? -outstanding
+          : currentFromNav || Number(form.currentValue) || 0,
+        quantity: isMf && units > 0 ? units : undefined,
+        avgCost: isMf && units > 0 && invested > 0 ? invested / units : undefined,
         notes: isLoan ? 'Liability' : undefined,
-        meta: isLoan
-          ? {
-              loanType: form.loanType,
-              ...(form.emi ? { emi: Number(form.emi) } : {}),
-              ...(form.rate ? { rate: Number(form.rate) } : {}),
-            }
-          : form.assetType === 'cash_lending'
-            ? {
-                ...(form.rate ? { rate: Number(form.rate) } : {}),
-              }
-            : undefined,
+        meta,
       };
 
       if (editingId) {
@@ -197,7 +258,17 @@ export function PortfolioPage() {
             <span>EMI ₹{Number(h.meta.emi).toLocaleString('en-IN')}</span>
           )}
           {h.meta?.rate != null && <span>Rate {String(h.meta.rate)}%</span>}
-          {h.quantity != null && <span>Qty {h.quantity}</span>}
+          {h.assetType === 'mutual_fund' && h.meta?.nav != null && (
+            <span>NAV ₹{Number(h.meta.nav).toLocaleString('en-IN', { maximumFractionDigits: 4 })}</span>
+          )}
+          {h.assetType === 'mutual_fund' && h.meta?.sip != null && (
+            <span>SIP ₹{Number(h.meta.sip).toLocaleString('en-IN')}/mo</span>
+          )}
+          {h.quantity != null && (
+            <span>
+              {h.assetType === 'mutual_fund' ? 'Units' : 'Qty'} {h.quantity}
+            </span>
+          )}
           <button type="button" className="linkish" onClick={() => startEdit(h)}>
             Edit
           </button>
@@ -365,9 +436,76 @@ export function PortfolioPage() {
             />
           </label>
 
+          {entryKind === 'investment' && form.assetType === 'mutual_fund' && (
+            <>
+              <label className="toggle-row">
+                <input
+                  type="checkbox"
+                  checked={form.isSip}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, isSip: e.target.checked }))
+                  }
+                />
+                SIP investment
+              </label>
+              {form.isSip && (
+                <label>
+                  SIP amount (₹ / month)
+                  <input
+                    type="number"
+                    min={0}
+                    value={form.sip}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, sip: e.target.value }))
+                    }
+                    placeholder="e.g. 5000"
+                  />
+                </label>
+              )}
+              <label>
+                Current NAV (₹)
+                <input
+                  type="number"
+                  step="0.0001"
+                  min={0}
+                  value={form.nav}
+                  onChange={(e) => {
+                    const nav = e.target.value;
+                    setForm((f) => ({
+                      ...f,
+                      nav,
+                      currentValue: mfCurrentValue(nav, f.units, f.currentValue),
+                    }));
+                  }}
+                  placeholder="e.g. 84.25"
+                />
+              </label>
+              <label>
+                Units
+                <input
+                  type="number"
+                  step="0.001"
+                  min={0}
+                  value={form.units}
+                  onChange={(e) => {
+                    const units = e.target.value;
+                    setForm((f) => ({
+                      ...f,
+                      units,
+                      currentValue: mfCurrentValue(f.nav, units, f.currentValue),
+                    }));
+                  }}
+                  placeholder="Optional — or derived from invested ÷ NAV"
+                />
+              </label>
+            </>
+          )}
+
           {entryKind === 'investment' && (
             <label>
-              Invested / principal (₹)
+              {form.assetType === 'mutual_fund'
+                ? 'Current invested amount (₹)'
+                : 'Invested / principal (₹)'}
               <input
                 type="number"
                 value={form.investedValue}
@@ -379,7 +517,11 @@ export function PortfolioPage() {
           )}
 
           <label>
-            {entryKind === 'loan' ? 'Outstanding amount (₹)' : 'Current value (₹)'}
+            {entryKind === 'loan'
+              ? 'Outstanding amount (₹)'
+              : form.assetType === 'mutual_fund'
+                ? 'Current value (₹)'
+                : 'Current value (₹)'}
             <input
               type="number"
               required
@@ -390,6 +532,11 @@ export function PortfolioPage() {
               }
             />
           </label>
+          {entryKind === 'investment' && form.assetType === 'mutual_fund' && (
+            <p className="muted tiny">
+              Current value auto-fills from units × NAV when both are set.
+            </p>
+          )}
 
           {entryKind === 'loan' && (
             <>

@@ -94,6 +94,7 @@ export class AdminController {
     body: {
       masterEnabled?: boolean;
       jobs?: Partial<Record<CronJobKey, boolean>>;
+      expressions?: Partial<Record<CronJobKey, string>>;
     },
   ) {
     return this.admin.updateCronSettings(body);

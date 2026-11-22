@@ -77,7 +77,7 @@ export interface DashboardData {
 }
 
 export type RecurringKind = 'income' | 'expense';
-export type RecurringFrequency = 'monthly' | 'yearly';
+export type RecurringFrequency = 'monthly' | 'quarterly' | 'yearly';
 
 export interface RecurringItem {
   id: string;
@@ -116,6 +116,28 @@ export interface NetWorthProjection {
   monthlySip: number;
   monthlySurplus: number;
   breakdown: { label: string; amount: number }[];
+}
+
+export interface ProjectionSeriesPoint {
+  year: number;
+  month: number;
+  label: string;
+  monthsAhead: number;
+  projectedNetWorth: number;
+  projectedAssets: number;
+  projectedLiabilities: number;
+}
+
+export interface ProjectionSeries {
+  asOf: string;
+  years: number;
+  currentNetWorth: number;
+  monthlyIncome: number;
+  monthlyExpenses: number;
+  monthlyEmi: number;
+  monthlySip: number;
+  monthlySurplus: number;
+  points: ProjectionSeriesPoint[];
 }
 
 export interface Ticker {
@@ -184,12 +206,16 @@ export interface CronRun {
 export type CronJobKey =
   | 'screener_10m'
   | 'price_refresh'
-  | 'daily_digest';
+  | 'daily_digest'
+  | 'expense_reminders';
 
 export interface CronJobSetting {
   key: CronJobKey;
   name: string;
+  /** Human-readable summary of the schedule. */
   schedule: string;
+  /** Standard 5-field cron expression (min hour day month weekday). */
+  expression: string;
   description: string;
   enabled: boolean;
 }
