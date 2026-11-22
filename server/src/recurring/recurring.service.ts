@@ -84,7 +84,10 @@ export class RecurringService {
   }
 
   async summary(userId: string) {
-    const items = await this.list(userId);
+    const [items, holdings] = await Promise.all([
+      this.list(userId),
+      this.store.listHoldings(userId),
+    ]);
     const active = items.filter((i) => i.active);
 
     const monthlyIncome = active
@@ -93,12 +96,17 @@ export class RecurringService {
     const monthlyExpenses = active
       .filter((i) => i.kind === 'expense')
       .reduce((s, i) => s + this.toMonthly(i), 0);
+    const monthlySip = holdings.reduce((s, h) => {
+      const sip = Number(h.meta?.sip);
+      return s + (Number.isFinite(sip) ? sip : 0);
+    }, 0);
 
     return {
       items,
       monthlyIncome,
       monthlyExpenses,
-      monthlySurplus: monthlyIncome - monthlyExpenses,
+      monthlySip,
+      monthlySurplus: monthlyIncome - monthlyExpenses - monthlySip,
     };
   }
 

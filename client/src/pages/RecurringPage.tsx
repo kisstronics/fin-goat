@@ -33,6 +33,7 @@ export function RecurringPage() {
   const [items, setItems] = useState<RecurringItem[]>([]);
   const [monthlyIncome, setMonthlyIncome] = useState(0);
   const [monthlyExpenses, setMonthlyExpenses] = useState(0);
+  const [monthlySip, setMonthlySip] = useState(0);
   const [monthlySurplus, setMonthlySurplus] = useState(0);
   const [error, setError] = useState('');
   const [showForm, setShowForm] = useState(false);
@@ -65,6 +66,7 @@ export function RecurringPage() {
     setItems(data.items);
     setMonthlyIncome(data.monthlyIncome);
     setMonthlyExpenses(data.monthlyExpenses);
+    setMonthlySip(data.monthlySip || 0);
     setMonthlySurplus(data.monthlySurplus);
   }
 
@@ -227,10 +229,15 @@ export function RecurringPage() {
           <strong className="negative">{formatInr(monthlyExpenses, true)}</strong>
         </article>
         <article className="stat-block">
+          <p className="eyebrow">Monthly SIP</p>
+          <strong className="negative">{formatInr(monthlySip, true)}</strong>
+        </article>
+        <article className="stat-block">
           <p className="eyebrow">Surplus</p>
           <strong className={monthlySurplus >= 0 ? 'positive' : 'negative'}>
             {formatInr(monthlySurplus, true)}
           </strong>
+          <p className="muted tiny">After expenses &amp; SIP</p>
         </article>
       </section>
 
