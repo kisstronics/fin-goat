@@ -20,6 +20,7 @@ import type {
   ScreenerResultRow,
   StockDetail,
   Ticker,
+  TickerPage,
   User,
 } from './types';
 
@@ -270,10 +271,40 @@ export const api = {
       lastCron: CronRun | null;
     }>('/api/admin/overview'),
   adminUsers: () => request<(User & { holdingsCount: number })[]>('/api/admin/users'),
-  adminTickers: () => request<Ticker[]>('/api/admin/tickers'),
+  adminTickers: (opts?: {
+    page?: number;
+    pageSize?: number;
+    q?: string;
+    screener?: 'all' | 'yes' | 'no';
+    announcements?: 'all' | 'yes' | 'no';
+  }) => {
+    const params = new URLSearchParams();
+    if (opts?.page) params.set('page', String(opts.page));
+    if (opts?.pageSize) params.set('pageSize', String(opts.pageSize));
+    if (opts?.q?.trim()) params.set('q', opts.q.trim());
+    if (opts?.screener === 'yes') params.set('screener', '1');
+    if (opts?.screener === 'no') params.set('screener', '0');
+    if (opts?.announcements === 'yes') params.set('announcements', '1');
+    if (opts?.announcements === 'no') params.set('announcements', '0');
+    const qs = params.toString();
+    return request<TickerPage>(
+      `/api/admin/tickers${qs ? `?${qs}` : ''}`,
+    );
+  },
   upsertTicker: (body: Partial<Ticker> & { symbol: string; name: string }) =>
     request<Ticker>('/api/admin/tickers', {
       method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  updateTickerInclusion: (
+    id: string,
+    body: {
+      includeInScreener?: boolean;
+      includeInAnnouncements?: boolean;
+    },
+  ) =>
+    request<Ticker>(`/api/admin/tickers/${id}/inclusion`, {
+      method: 'PATCH',
       body: JSON.stringify(body),
     }),
   syncAllTickers: () =>

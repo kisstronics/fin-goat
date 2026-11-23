@@ -159,7 +159,16 @@ export interface Ticker {
   marketCapCr: number;
   pe?: number;
   active: boolean;
+  includeInScreener: boolean;
+  includeInAnnouncements: boolean;
   updatedAt: string;
+}
+
+export interface TickerPage {
+  items: Ticker[];
+  total: number;
+  page: number;
+  pageSize: number;
 }
 
 export interface ScreenerDef {

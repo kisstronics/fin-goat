@@ -148,6 +148,8 @@ export function seedTickers(): Ticker[] {
       marketCapCr: 1920000,
       pe: 26.4,
       active: true,
+      includeInScreener: true,
+      includeInAnnouncements: true,
       updatedAt: stamp,
     },
     {
@@ -169,6 +171,8 @@ export function seedTickers(): Ticker[] {
       marketCapCr: 1440000,
       pe: 30.1,
       active: true,
+      includeInScreener: true,
+      includeInAnnouncements: true,
       updatedAt: stamp,
     },
     {
@@ -190,6 +194,8 @@ export function seedTickers(): Ticker[] {
       marketCapCr: 1280000,
       pe: 19.8,
       active: true,
+      includeInScreener: true,
+      includeInAnnouncements: true,
       updatedAt: stamp,
     },
     {
@@ -211,6 +217,8 @@ export function seedTickers(): Ticker[] {
       marketCapCr: 640000,
       pe: 24.2,
       active: true,
+      includeInScreener: true,
+      includeInAnnouncements: true,
       updatedAt: stamp,
     },
     {
@@ -232,6 +240,8 @@ export function seedTickers(): Ticker[] {
       marketCapCr: 725000,
       pe: 10.4,
       active: true,
+      includeInScreener: true,
+      includeInAnnouncements: true,
       updatedAt: stamp,
     },
     {
@@ -253,6 +263,8 @@ export function seedTickers(): Ticker[] {
       marketCapCr: 260000,
       pe: 8.9,
       active: true,
+      includeInScreener: true,
+      includeInAnnouncements: true,
       updatedAt: stamp,
     },
     {
@@ -274,6 +286,8 @@ export function seedTickers(): Ticker[] {
       marketCapCr: 585000,
       pe: 27.5,
       active: true,
+      includeInScreener: true,
+      includeInAnnouncements: true,
       updatedAt: stamp,
     },
     {
@@ -295,6 +309,8 @@ export function seedTickers(): Ticker[] {
       marketCapCr: 348000,
       pe: 13.6,
       active: true,
+      includeInScreener: true,
+      includeInAnnouncements: true,
       updatedAt: stamp,
     },
   ];

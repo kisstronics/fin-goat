@@ -5,6 +5,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { AdminGuard } from '../common/admin.guard';
@@ -35,8 +36,25 @@ export class AdminController {
   }
 
   @Get('tickers')
-  tickers() {
-    return this.admin.tickers();
+  tickers(
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('q') q?: string,
+    @Query('screener') screener?: string,
+    @Query('announcements') announcements?: string,
+  ) {
+    const parseFlag = (value?: string) => {
+      if (value === '1' || value === 'true') return true;
+      if (value === '0' || value === 'false') return false;
+      return undefined;
+    };
+    return this.admin.tickers({
+      page: page ? Number(page) : 1,
+      pageSize: pageSize ? Number(pageSize) : 25,
+      q: q || undefined,
+      includeInScreener: parseFlag(screener),
+      includeInAnnouncements: parseFlag(announcements),
+    });
   }
 
   @Post('tickers')
@@ -44,6 +62,18 @@ export class AdminController {
     @Body() body: Partial<Ticker> & { symbol: string; name: string },
   ) {
     return this.admin.upsertTicker(body);
+  }
+
+  @Patch('tickers/:id/inclusion')
+  updateTickerInclusion(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      includeInScreener?: boolean;
+      includeInAnnouncements?: boolean;
+    },
+  ) {
+    return this.admin.updateTickerInclusion(id, body);
   }
 
   @Post('tickers/sync')

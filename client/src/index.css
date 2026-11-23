@@ -809,6 +809,115 @@ label {
   gap: 0.75rem;
 }
 
+.admin-console,
+.market-console {
+  gap: 0.75rem;
+}
+
+.market-console .admin-tabs {
+  margin: 0;
+  padding-bottom: 0.15rem;
+}
+
+.market-console .admin-tabs .chip {
+  padding: 0.35rem 0.7rem;
+  font-size: 0.82rem;
+}
+
+.ticker-actions {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.55rem;
+  overflow-x: auto;
+}
+
+.ticker-actions .btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.admin-console .admin-tabs {
+  margin: 0;
+  padding-bottom: 0.15rem;
+}
+
+.admin-console .admin-tabs .chip {
+  padding: 0.35rem 0.7rem;
+  font-size: 0.82rem;
+}
+
+.inline-search,
+.ticker-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  align-items: flex-end;
+  margin: 0.35rem 0 0.5rem;
+}
+
+.inline-search input[type='search'],
+.ticker-filters input[type='search'] {
+  flex: 1 1 12rem;
+  min-width: 10rem;
+  max-width: 20rem;
+}
+
+.ticker-filters .filter-field {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 8.5rem;
+}
+
+.ticker-filters .filter-field span {
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.ticker-filters .filter-field select {
+  min-width: 8.5rem;
+}
+
+.table-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  margin: 0.35rem 0 0.65rem;
+}
+
+.page-jump {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  white-space: nowrap;
+}
+
+.page-jump input[type='number'] {
+  width: 3.25rem;
+  min-width: 3.25rem;
+  padding: 0.3rem 0.35rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.check-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.check-inline input {
+  width: auto;
+  margin: 0;
+}
+
 .table-wrap {
   overflow-x: auto;
   padding: 0;
@@ -1110,6 +1219,45 @@ button.text-link {
 
 .toggle-row input {
   width: auto;
+}
+
+.switch-toggle {
+  position: relative;
+  flex: 0 0 auto;
+  width: 2.4rem;
+  height: 1.35rem;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--muted) 28%, transparent);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.switch-toggle:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.switch-toggle.on {
+  background: color-mix(in srgb, var(--accent) 70%, transparent);
+  border-color: transparent;
+}
+
+.switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: calc(1.35rem - 6px);
+  height: calc(1.35rem - 6px);
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 25%, transparent);
+  transition: transform 0.15s ease;
+}
+
+.switch-toggle.on .switch-thumb {
+  transform: translateX(1.05rem);
 }
 
 .plan-grid {

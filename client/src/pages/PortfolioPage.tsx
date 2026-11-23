@@ -33,6 +33,16 @@ const LOAN_TYPES = [
 ] as const;
 
 type LoanType = (typeof LOAN_TYPES)[number];
+type PortfolioTab = 'investments' | 'loans';
+type SortKey =
+  | 'name'
+  | 'type'
+  | 'investedValue'
+  | 'currentValue'
+  | 'returnPct'
+  | 'updatedAt';
+
+const PAGE_SIZES = [10, 25, 50];
 
 export function PortfolioPage() {
   const [holdings, setHoldings] = useState<Holding[]>([]);
@@ -40,6 +50,13 @@ export function PortfolioPage() {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [entryKind, setEntryKind] = useState<'investment' | 'loan'>('investment');
+  const [tab, setTab] = useState<PortfolioTab>('investments');
+  const [query, setQuery] = useState('');
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [sortKey, setSortKey] = useState<SortKey>('updatedAt');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [form, setForm] = useState({
     assetType: 'mutual_fund' as AssetType,
     loanType: 'home' as LoanType,
@@ -62,6 +79,147 @@ export function PortfolioPage() {
     () => holdings.filter((h) => isLiabilityHolding(h)),
     [holdings],
   );
+
+  const activeRows = tab === 'investments' ? investments : loans;
+
+  const typeOptions = useMemo(() => {
+    if (tab === 'investments') {
+      const set = new Set(activeRows.map((h) => h.assetType));
+      return INVESTMENT_TYPES.filter((t) => set.has(t));
+    }
+    const set = new Set(
+      activeRows.map((h) =>
+        typeof h.meta?.loanType === 'string' ? h.meta.loanType : 'other',
+      ),
+    );
+    return LOAN_TYPES.filter((t) => set.has(t));
+  }, [activeRows, tab]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    let rows = activeRows;
+    if (q) {
+      rows = rows.filter((h) => {
+        const typeLabel =
+          tab === 'loans'
+            ? loanTypeLabel(
+                typeof h.meta?.loanType === 'string' ? h.meta.loanType : 'other',
+              )
+            : assetLabel(h.assetType);
+        return (
+          h.name.toLowerCase().includes(q) ||
+          typeLabel.toLowerCase().includes(q) ||
+          (h.notes || '').toLowerCase().includes(q)
+        );
+      });
+    }
+    if (typeFilter !== 'all') {
+      rows = rows.filter((h) => {
+        if (tab === 'loans') {
+          const loanType =
+            typeof h.meta?.loanType === 'string' ? h.meta.loanType : 'other';
+          return loanType === typeFilter;
+        }
+        return h.assetType === typeFilter;
+      });
+    }
+
+    const dir = sortDir === 'asc' ? 1 : -1;
+    return [...rows].sort((a, b) => {
+      const typeA =
+        tab === 'loans'
+          ? typeof a.meta?.loanType === 'string'
+            ? a.meta.loanType
+            : 'other'
+          : a.assetType;
+      const typeB =
+        tab === 'loans'
+          ? typeof b.meta?.loanType === 'string'
+            ? b.meta.loanType
+            : 'other'
+          : b.assetType;
+      const returnA =
+        !isLiabilityHolding(a) && a.investedValue
+          ? ((a.currentValue - a.investedValue) / Math.abs(a.investedValue)) * 100
+          : 0;
+      const returnB =
+        !isLiabilityHolding(b) && b.investedValue
+          ? ((b.currentValue - b.investedValue) / Math.abs(b.investedValue)) * 100
+          : 0;
+      const av =
+        sortKey === 'name'
+          ? a.name
+          : sortKey === 'type'
+            ? typeA
+            : sortKey === 'investedValue'
+              ? a.investedValue
+              : sortKey === 'currentValue'
+                ? Math.abs(a.currentValue)
+                : sortKey === 'returnPct'
+                  ? returnA
+                  : a.updatedAt;
+      const bv =
+        sortKey === 'name'
+          ? b.name
+          : sortKey === 'type'
+            ? typeB
+            : sortKey === 'investedValue'
+              ? b.investedValue
+              : sortKey === 'currentValue'
+                ? Math.abs(b.currentValue)
+                : sortKey === 'returnPct'
+                  ? returnB
+                  : b.updatedAt;
+      if (typeof av === 'number' && typeof bv === 'number') {
+        return (av - bv) * dir;
+      }
+      return String(av).localeCompare(String(bv)) * dir;
+    });
+  }, [activeRows, query, typeFilter, sortKey, sortDir, tab]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize) || 1);
+  const safePage = Math.min(page, totalPages);
+  const pageRows = filtered.slice(
+    (safePage - 1) * pageSize,
+    safePage * pageSize,
+  );
+
+  const rangeLabel = useMemo(() => {
+    if (!filtered.length) return '0';
+    const from = (safePage - 1) * pageSize + 1;
+    const to = Math.min(safePage * pageSize, filtered.length);
+    return `${from}–${to} of ${filtered.length.toLocaleString('en-IN')}`;
+  }, [filtered.length, safePage, pageSize]);
+
+  function toggleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+      return;
+    }
+    setSortKey(key);
+    setSortDir(
+      key === 'currentValue' ||
+        key === 'investedValue' ||
+        key === 'returnPct' ||
+        key === 'updatedAt'
+        ? 'desc'
+        : 'asc',
+    );
+  }
+
+  function sortMark(key: SortKey) {
+    if (sortKey !== key) return '';
+    return sortDir === 'asc' ? ' ↑' : ' ↓';
+  }
+
+  function switchTab(next: PortfolioTab) {
+    setTab(next);
+    setQuery('');
+    setTypeFilter('all');
+    setPage(1);
+    setSortKey('updatedAt');
+    setSortDir('desc');
+  }
 
   async function load() {
     try {
@@ -113,6 +271,7 @@ export function PortfolioPage() {
       h.meta?.sip != null && Number.isFinite(Number(h.meta.sip))
         ? Number(h.meta.sip)
         : 0;
+    setTab(liability ? 'loans' : 'investments');
     setEntryKind(liability ? 'loan' : 'investment');
     setEditingId(h.id);
     setShowForm(true);
@@ -215,106 +374,43 @@ export function PortfolioPage() {
     await load();
   }
 
-  function renderHolding(h: Holding) {
-    const liability = isLiabilityHolding(h);
-    const displayValue = liability ? Math.abs(h.currentValue) : h.currentValue;
-    const gain = liability ? 0 : h.currentValue - h.investedValue;
-    const pct =
-      !liability && h.investedValue !== 0
-        ? (gain / Math.abs(h.investedValue)) * 100
-        : 0;
-    const loanType =
-      typeof h.meta?.loanType === 'string' ? h.meta.loanType : undefined;
-
-    return (
-      <li key={h.id} className="holding-card">
-        <div className="holding-main">
-          <div>
-            <p className="eyebrow">
-              {liability
-                ? loanType
-                  ? loanTypeLabel(loanType)
-                  : assetLabel(h.assetType)
-                : assetLabel(h.assetType)}
-            </p>
-            <h3>{h.name}</h3>
-            {h.notes && !liability && <p className="muted tiny">{h.notes}</p>}
-          </div>
-          <div className="holding-values">
-            <strong className={liability ? 'negative' : undefined}>
-              {liability ? `−${formatInr(displayValue)}` : formatInr(displayValue)}
-            </strong>
-            {!liability && (
-              <span className={gain >= 0 ? 'positive' : 'negative'}>
-                {formatPct(pct)}
-              </span>
-            )}
-            {liability && <span className="muted tiny">Outstanding</span>}
-          </div>
-        </div>
-        <div className="holding-meta">
-          {!liability && <span>Invested {formatInr(h.investedValue)}</span>}
-          {liability && h.meta?.emi != null && (
-            <span>EMI ₹{Number(h.meta.emi).toLocaleString('en-IN')}</span>
-          )}
-          {h.meta?.rate != null && <span>Rate {String(h.meta.rate)}%</span>}
-          {h.assetType === 'mutual_fund' && h.meta?.nav != null && (
-            <span>NAV ₹{Number(h.meta.nav).toLocaleString('en-IN', { maximumFractionDigits: 4 })}</span>
-          )}
-          {h.assetType === 'mutual_fund' && h.meta?.sip != null && (
-            <span>SIP ₹{Number(h.meta.sip).toLocaleString('en-IN')}/mo</span>
-          )}
-          {h.quantity != null && (
-            <span>
-              {h.assetType === 'mutual_fund' ? 'Units' : 'Qty'} {h.quantity}
-            </span>
-          )}
-          <button type="button" className="linkish" onClick={() => startEdit(h)}>
-            Edit
-          </button>
-          <button
-            type="button"
-            className="linkish"
-            onClick={() => void onDelete(h.id)}
-          >
-            Remove
-          </button>
-        </div>
-      </li>
-    );
-  }
-
   return (
-    <div className="page-stack">
-      <header className="page-head">
-        <p className="eyebrow">Portfolio</p>
-        <h1>Personal investment tracker</h1>
-        <p className="muted">
-          Track investments (including money you lent) separately from loans you
-          owe.
-        </p>
-      </header>
+    <div className="page-stack market-console">
+      <div
+        className="chip-row wrap admin-tabs"
+        role="tablist"
+        aria-label="Portfolio sections"
+      >
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'investments'}
+          className={`chip${tab === 'investments' ? ' active' : ''}`}
+          onClick={() => switchTab('investments')}
+        >
+          Investments ({investments.length})
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'loans'}
+          className={`chip${tab === 'loans' ? ' active' : ''}`}
+          onClick={() => switchTab('loans')}
+        >
+          Loans ({loans.length})
+        </button>
+      </div>
 
-      <div className="quick-links">
+      <div className="ticker-actions">
         <button
           type="button"
           className="btn primary"
           onClick={() => {
-            resetForm('investment');
+            resetForm(tab === 'loans' ? 'loan' : 'investment');
             setShowForm(true);
           }}
         >
-          Add investment
-        </button>
-        <button
-          type="button"
-          className="btn secondary"
-          onClick={() => {
-            resetForm('loan');
-            setShowForm(true);
-          }}
-        >
-          Add loan
+          {tab === 'loans' ? 'Add loan' : 'Add investment'}
         </button>
         {showForm && (
           <button
@@ -322,7 +418,7 @@ export function PortfolioPage() {
             className="btn secondary"
             onClick={() => {
               setShowForm(false);
-              resetForm();
+              resetForm(tab === 'loans' ? 'loan' : 'investment');
             }}
           >
             Cancel
@@ -586,35 +682,270 @@ export function PortfolioPage() {
 
       {error && <p className="error">{error}</p>}
 
-      <section className="panel-block">
-        <div className="panel-head-row">
-          <h2>Investments</h2>
-          <span className="muted tiny">{investments.length}</span>
-        </div>
-        <p className="muted tiny">
-          Includes stocks, MFs, EPF, FDs, gold, real estate, and cash lending.
-        </p>
-        <ul className="holding-list">
-          {investments.length === 0 && (
-            <li className="muted">No investments yet</li>
-          )}
-          {investments.map(renderHolding)}
-        </ul>
-      </section>
+      <div className="ticker-filters">
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setPage(1);
+          }}
+          placeholder={
+            tab === 'loans'
+              ? 'Search loan name or type'
+              : 'Search investment name or type'
+          }
+          aria-label="Search portfolio entries"
+        />
+        <label className="filter-field">
+          <span>Type</span>
+          <select
+            value={typeFilter}
+            onChange={(e) => {
+              setTypeFilter(e.target.value);
+              setPage(1);
+            }}
+          >
+            <option value="all">All</option>
+            {typeOptions.map((t) => (
+              <option key={t} value={t}>
+                {tab === 'loans' ? loanTypeLabel(t) : assetLabel(t)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="filter-field">
+          <span>Rows</span>
+          <select
+            value={pageSize}
+            onChange={(e) => {
+              setPageSize(Number(e.target.value));
+              setPage(1);
+            }}
+          >
+            {PAGE_SIZES.map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+        </label>
+        {(query || typeFilter !== 'all') && (
+          <button
+            type="button"
+            className="btn ghost"
+            onClick={() => {
+              setQuery('');
+              setTypeFilter('all');
+              setPage(1);
+            }}
+          >
+            Clear
+          </button>
+        )}
+      </div>
 
-      <section className="panel-block">
-        <div className="panel-head-row">
-          <h2>Loans</h2>
-          <span className="muted tiny">{loans.length}</span>
-        </div>
+      <div className="table-toolbar">
         <p className="muted tiny">
-          Home, car, personal, education, gold, business, and other liabilities.
+          {rangeLabel} {tab} · {totalPages} page
+          {totalPages === 1 ? '' : 's'}
         </p>
-        <ul className="holding-list">
-          {loans.length === 0 && <li className="muted">No loans added</li>}
-          {loans.map(renderHolding)}
-        </ul>
-      </section>
+        <div className="table-pager">
+          <button
+            type="button"
+            className="icon-btn"
+            disabled={safePage <= 1}
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            aria-label="Previous page"
+          >
+            ‹
+          </button>
+          <label className="page-jump">
+            <span className="muted tiny">Page</span>
+            <input
+              type="number"
+              min={1}
+              max={totalPages}
+              value={safePage}
+              disabled={totalPages <= 1}
+              onChange={(e) => {
+                const raw = Number(e.target.value);
+                if (!Number.isFinite(raw)) return;
+                setPage(Math.min(totalPages, Math.max(1, Math.floor(raw))));
+              }}
+              aria-label="Page number"
+            />
+            <span className="muted tiny">of {totalPages}</span>
+          </label>
+          <button
+            type="button"
+            className="icon-btn"
+            disabled={safePage >= totalPages}
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            aria-label="Next page"
+          >
+            ›
+          </button>
+        </div>
+      </div>
+
+      <div className="table-wrap">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>
+                <button
+                  type="button"
+                  className="th-btn"
+                  onClick={() => toggleSort('name')}
+                >
+                  Name{sortMark('name')}
+                </button>
+              </th>
+              <th>
+                <button
+                  type="button"
+                  className="th-btn"
+                  onClick={() => toggleSort('type')}
+                >
+                  Type{sortMark('type')}
+                </button>
+              </th>
+              {tab === 'investments' && (
+                <th className="num">
+                  <button
+                    type="button"
+                    className="th-btn"
+                    onClick={() => toggleSort('investedValue')}
+                  >
+                    Invested{sortMark('investedValue')}
+                  </button>
+                </th>
+              )}
+              <th className="num">
+                <button
+                  type="button"
+                  className="th-btn"
+                  onClick={() => toggleSort('currentValue')}
+                >
+                  {tab === 'loans' ? 'Outstanding' : 'Value'}
+                  {sortMark('currentValue')}
+                </button>
+              </th>
+              {tab === 'investments' && (
+                <th className="num">
+                  <button
+                    type="button"
+                    className="th-btn"
+                    onClick={() => toggleSort('returnPct')}
+                  >
+                    Return{sortMark('returnPct')}
+                  </button>
+                </th>
+              )}
+              {tab === 'loans' && <th className="num">EMI</th>}
+              {tab === 'loans' && <th className="num">Rate</th>}
+              <th>
+                <button
+                  type="button"
+                  className="th-btn"
+                  onClick={() => toggleSort('updatedAt')}
+                >
+                  Updated{sortMark('updatedAt')}
+                </button>
+              </th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {pageRows.length === 0 && (
+              <tr>
+                <td colSpan={tab === 'loans' ? 7 : 7} className="muted">
+                  {tab === 'loans'
+                    ? 'No loans match the current filters.'
+                    : 'No investments match the current filters.'}
+                </td>
+              </tr>
+            )}
+            {pageRows.map((h) => {
+              const liability = isLiabilityHolding(h);
+              const displayValue = Math.abs(h.currentValue);
+              const gain = liability ? 0 : h.currentValue - h.investedValue;
+              const pct =
+                !liability && h.investedValue !== 0
+                  ? (gain / Math.abs(h.investedValue)) * 100
+                  : 0;
+              const loanType =
+                typeof h.meta?.loanType === 'string'
+                  ? h.meta.loanType
+                  : 'other';
+              return (
+                <tr key={h.id}>
+                  <td>
+                    <strong>{h.name}</strong>
+                    {h.assetType === 'mutual_fund' && h.meta?.sip != null && (
+                      <div className="muted tiny">
+                        SIP ₹{Number(h.meta.sip).toLocaleString('en-IN')}/mo
+                      </div>
+                    )}
+                  </td>
+                  <td className="nowrap">
+                    {liability
+                      ? loanTypeLabel(loanType)
+                      : assetLabel(h.assetType)}
+                  </td>
+                  {tab === 'investments' && (
+                    <td className="num">{formatInr(h.investedValue)}</td>
+                  )}
+                  <td className={`num${liability ? ' negative' : ''}`}>
+                    {liability
+                      ? `−${formatInr(displayValue)}`
+                      : formatInr(displayValue)}
+                  </td>
+                  {tab === 'investments' && (
+                    <td
+                      className={`num ${gain >= 0 ? 'positive' : 'negative'}`}
+                    >
+                      {formatPct(pct)}
+                    </td>
+                  )}
+                  {tab === 'loans' && (
+                    <td className="num">
+                      {h.meta?.emi != null
+                        ? formatInr(Number(h.meta.emi))
+                        : '—'}
+                    </td>
+                  )}
+                  {tab === 'loans' && (
+                    <td className="num">
+                      {h.meta?.rate != null ? `${h.meta.rate}%` : '—'}
+                    </td>
+                  )}
+                  <td className="nowrap">
+                    {new Date(h.updatedAt).toLocaleDateString('en-IN')}
+                  </td>
+                  <td className="num nowrap">
+                    <button
+                      type="button"
+                      className="linkish"
+                      onClick={() => startEdit(h)}
+                    >
+                      Edit
+                    </button>{' '}
+                    <button
+                      type="button"
+                      className="linkish"
+                      onClick={() => void onDelete(h.id)}
+                    >
+                      Remove
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

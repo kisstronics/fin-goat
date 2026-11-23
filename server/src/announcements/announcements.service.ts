@@ -200,6 +200,11 @@ export class AnnouncementsService {
     }
     const ticker = await this.store.findTicker(tickerId);
     if (!ticker) throw new NotFoundException('Ticker not found');
+    if (!ticker.includeInAnnouncements) {
+      throw new BadRequestException(
+        'This ticker is not enabled for announcement alerts (admin setting)',
+      );
+    }
     const item = await this.store.addAnnouncementAlertStock({
       id: uuid(),
       userId,
@@ -233,9 +238,21 @@ export class AnnouncementsService {
     const body = bodyLines.join('\n');
 
     for (const userId of userIds) {
+      const already = await this.store.listAnnouncementAlertSentIds(userId, [
+        announcement.id,
+      ]);
+      if (already.has(announcement.id)) {
+        this.logger.debug(
+          `Skipping announcement ${announcement.seqId} for ${userId} — already sent`,
+        );
+        continue;
+      }
+
       const user = await this.store.findUserById(userId);
       if (!user) continue;
       if (!user.notifyEmail && !user.notifyTelegram) continue;
+
+      let delivered = false;
 
       if (user.notifyEmail) {
         const sent = await this.email.notifyUser({
@@ -249,6 +266,8 @@ export class AnnouncementsService {
           this.logger.warn(
             `Announcement email failed for ${user.id}: ${sent.error}`,
           );
+        } else {
+          delivered = true;
         }
         await this.store.createAlert({
           id: uuid(),
@@ -279,7 +298,17 @@ export class AnnouncementsService {
           this.logger.warn(
             `Announcement Telegram failed for ${user.id}: ${sent.error}`,
           );
+        } else {
+          delivered = true;
         }
+      }
+
+      if (delivered) {
+        await this.store.markAnnouncementAlertSent(
+          user.id,
+          announcement.id,
+          stamp,
+        );
       }
     }
   }
@@ -391,13 +420,15 @@ export class AnnouncementsService {
   async searchTickers(query: string): Promise<Ticker[]> {
     const q = query.trim().toLowerCase();
     if (q.length < 1) throw new BadRequestException('Query required');
-    const tickers = await this.store.listTickers();
+    const tickers = await this.store.listTickers({
+      activeOnly: true,
+      includeInAnnouncements: true,
+    });
     return tickers
       .filter(
         (t) =>
-          t.active &&
-          (t.symbol.toLowerCase().includes(q) ||
-            t.name.toLowerCase().includes(q)),
+          t.symbol.toLowerCase().includes(q) ||
+          t.name.toLowerCase().includes(q),
       )
       .slice(0, 25);
   }

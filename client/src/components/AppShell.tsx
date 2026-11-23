@@ -138,14 +138,34 @@ export function AppShell({
       <div className="web-stage">
         <header className="app-header desktop-bar">
           <div className="desktop-bar-copy">
-            <p className="eyebrow">Fin Goat</p>
-            <p className="desktop-bar-path">
-              {links.find((l) =>
-                l.end
-                  ? location.pathname === l.to
-                  : location.pathname.startsWith(l.to),
-              )?.label || 'App'}
-            </p>
+            {location.pathname.startsWith('/admin') ? (
+              <>
+                <p className="eyebrow">Admin</p>
+                <p className="desktop-bar-path">Console</p>
+              </>
+            ) : location.pathname.startsWith('/market') ? (
+              <>
+                <p className="eyebrow">Market</p>
+                <p className="desktop-bar-path">
+                  {location.pathname === '/market' ||
+                  location.pathname === '/market/'
+                    ? 'Stocks & screeners'
+                    : location.pathname.split('/').pop()?.toUpperCase() ||
+                      'Stock detail'}
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="eyebrow">Fin Goat</p>
+                <p className="desktop-bar-path">
+                  {links.find((l) =>
+                    l.end
+                      ? location.pathname === l.to
+                      : location.pathname.startsWith(l.to),
+                  )?.label || 'App'}
+                </p>
+              </>
+            )}
           </div>
           <div className="app-header-actions">
             <button

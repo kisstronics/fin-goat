@@ -40,8 +40,14 @@ export class AdminService {
     );
   }
 
-  tickers() {
-    return this.store.listTickers();
+  tickers(opts?: {
+    page?: number;
+    pageSize?: number;
+    q?: string;
+    includeInScreener?: boolean;
+    includeInAnnouncements?: boolean;
+  }) {
+    return this.store.listTickersPaged(opts);
   }
 
   async upsertTicker(body: Partial<Ticker> & { symbol: string; name: string }) {
@@ -53,6 +59,18 @@ export class AdminService {
       }
       throw err;
     }
+  }
+
+  async updateTickerInclusion(
+    id: string,
+    patch: {
+      includeInScreener?: boolean;
+      includeInAnnouncements?: boolean;
+    },
+  ) {
+    const ticker = await this.store.updateTickerInclusion(id, patch);
+    if (!ticker) throw new NotFoundException('Ticker not found');
+    return ticker;
   }
 
   syncAllTickers() {
@@ -92,7 +110,7 @@ export class AdminService {
   }
 
   cronRuns() {
-    return this.store.listCronRuns(40);
+    return this.store.listCronRuns(10);
   }
 
   getCronSettings() {

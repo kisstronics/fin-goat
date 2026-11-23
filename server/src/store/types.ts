@@ -159,7 +159,18 @@ export interface Ticker {
   marketCapCr: number;
   pe?: number;
   active: boolean;
+  /** When true, this ticker is evaluated by screener jobs. */
+  includeInScreener: boolean;
+  /** When true, this ticker can be watched / notified for NSE announcements. */
+  includeInAnnouncements: boolean;
   updatedAt: string;
+}
+
+export interface TickerPage {
+  items: Ticker[];
+  total: number;
+  page: number;
+  pageSize: number;
 }
 
 export interface Holding {
@@ -189,6 +200,26 @@ export interface ScreenerResult {
   screener: ScreenerKey;
   matchedAt: string;
   reason: string;
+  /** Stable match signature used to dedupe alerts (excludes cron trigger labels). */
+  fingerprint?: string;
+}
+
+/** Tracks the last screener alert delivered to a user for a ticker+screener pair. */
+export interface ScreenerAlertSent {
+  id: string;
+  userId: string;
+  tickerId: string;
+  screener: ScreenerKey;
+  fingerprint: string;
+  lastSentAt: string;
+}
+
+/** Tracks that a user was already notified about a specific NSE announcement. */
+export interface AnnouncementAlertSent {
+  id: string;
+  userId: string;
+  announcementId: string;
+  lastSentAt: string;
 }
 
 export interface AlertLog {
