@@ -283,7 +283,11 @@ export class AdminService {
     }
     const result = await this.telegram.sendToLinkedPhone(
       phone,
-      'Fin Goat admin test message ✅\n\nYour phone + chat_id link is working.',
+      this.telegram.formatHtmlCard({
+        badge: '✅ Fin Goat',
+        title: 'Admin test message',
+        lines: ['Your phone + chat link is working.'],
+      }),
     );
     if (!result.ok) {
       throw new BadRequestException(

@@ -17,6 +17,20 @@ export type ScreenerKey =
   | 'near_52w_low'
   | 'above_50pct_from_low';
 
+export interface ProjectionSettings {
+  returnsPct: number;
+  incomeGrowthPct: number;
+  expenseGrowthPct: number;
+  years: number;
+}
+
+export const DEFAULT_PROJECTION_SETTINGS: ProjectionSettings = {
+  returnsPct: 15,
+  incomeGrowthPct: 0,
+  expenseGrowthPct: 0,
+  years: 10,
+};
+
 export interface User {
   id: string;
   email: string;
@@ -31,6 +45,7 @@ export interface User {
   picture?: string;
   googleId?: string;
   createdAt: string;
+  projectionSettings?: ProjectionSettings;
 }
 
 export interface Plan {
@@ -64,6 +79,10 @@ export interface DashboardData {
   netWorth: number;
   totalAssets: number;
   totalLiabilities: number;
+  /** Stocks, MFs, gold, cash lending — quicker to convert. */
+  liquidAssets: number;
+  /** FD, EPF, PPF, NPS, real estate — longer lock-in / illiquid. */
+  fixedAssets: number;
   invested: number;
   absoluteReturn: number;
   returnPct: number;
@@ -115,6 +134,9 @@ export interface NetWorthProjection {
   monthlyEmi: number;
   monthlySip: number;
   monthlySurplus: number;
+  annualGrowthPct?: number;
+  incomeGrowthPct?: number;
+  expenseGrowthPct?: number;
   breakdown: { label: string; amount: number }[];
 }
 
@@ -131,6 +153,9 @@ export interface ProjectionSeriesPoint {
 export interface ProjectionSeries {
   asOf: string;
   years: number;
+  annualGrowthPct?: number;
+  incomeGrowthPct?: number;
+  expenseGrowthPct?: number;
   currentNetWorth: number;
   monthlyIncome: number;
   monthlyExpenses: number;

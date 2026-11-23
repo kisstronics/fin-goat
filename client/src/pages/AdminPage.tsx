@@ -395,7 +395,9 @@ export function AdminPage() {
       await loadTickersPage(1, tickerSearch);
       setOverview(await api.adminOverview());
       setSyncNote(
-        `Synced ${result.universeSize} symbols · created ${result.created} · updated ${result.updated}. ${result.source}. ${result.priceRefresh.note || 'Price refresh started in background.'}`,
+        `Synced ${result.universeSize} NSE symbols · created ${result.created} · updated ${result.updated}` +
+          `${result.totalInDb != null ? ` · DB now ${result.totalInDb}` : ''}` +
+          `. ${result.source}. ${result.priceRefresh.note || 'Price refresh started in background.'}`,
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ticker sync failed');

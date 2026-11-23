@@ -260,8 +260,31 @@ export class RecurringService {
         });
       }
       if (user.notifyTelegram && user.telegramChatId) {
-        const message = `${title}\n\n${body}`;
-        const sent = await this.telegram.sendMessage(
+        const e = (v: string) => this.telegram.escapeHtml(v);
+        const htmlLines = items.map((i) => {
+          const amount = `₹${Math.round(i.amount).toLocaleString('en-IN')}`;
+          const meta = [
+            i.frequency,
+            i.dayOfMonth ? `day ${i.dayOfMonth}` : '',
+            i.category || '',
+          ]
+            .filter(Boolean)
+            .join(' · ');
+          return [
+            `• <b>${e(i.name)}</b> — ${e(amount)}`,
+            meta ? `  <i>${e(meta)}</i>` : '',
+          ]
+            .filter(Boolean)
+            .join('\n');
+        });
+        const message = this.telegram.formatHtmlCard({
+          badge: '💸 Expense due',
+          title: 'Deduction reminder',
+          subtitle: `${items.length} item${items.length === 1 ? '' : 's'} today · Fin Goat`,
+          lines: htmlLines,
+          footer: 'Open Fin Goat → Portfolio → Expenses',
+        });
+        const sent = await this.telegram.sendHtml(
           user.telegramChatId,
           message,
         );

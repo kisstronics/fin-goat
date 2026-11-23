@@ -1,7 +1,15 @@
 import { useEffect, useState, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../auth';
-import type { AlertLog, Plan, PlanId, User } from '../types';
+import type {
+  AlertLog,
+  Plan,
+  PlanId,
+  ProjectionSettings,
+  User,
+} from '../types';
+import { DEFAULT_PROJECTION_SETTINGS } from '../types';
 
 type TelegramInfo = {
   enabled: boolean;
@@ -9,7 +17,12 @@ type TelegramInfo = {
   linked: boolean;
 };
 
-type SettingsTab = 'profile' | 'notifications' | 'plan' | 'alerts';
+type SettingsTab =
+  | 'profile'
+  | 'notifications'
+  | 'plan'
+  | 'projection'
+  | 'alerts';
 
 export function SettingsPage() {
   const { refresh } = useAuth();
@@ -18,6 +31,9 @@ export function SettingsPage() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [alerts, setAlerts] = useState<AlertLog[]>([]);
   const [telegram, setTelegram] = useState<TelegramInfo | null>(null);
+  const [projection, setProjection] = useState<ProjectionSettings>(
+    DEFAULT_PROJECTION_SETTINGS,
+  );
   const [saved, setSaved] = useState(false);
   const [testNote, setTestNote] = useState('');
   const [testBusy, setTestBusy] = useState(false);
@@ -30,6 +46,7 @@ export function SettingsPage() {
         setUser(settings.user);
         setPlans(settings.plans);
         setTelegram(settings.telegram);
+        setProjection(settings.projection || DEFAULT_PROJECTION_SETTINGS);
         setAlerts(alertRows);
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'Failed'));
@@ -51,7 +68,29 @@ export function SettingsPage() {
       setUser(next.user);
       setPlans(next.plans);
       setTelegram(next.telegram);
+      if (next.projection) setProjection(next.projection);
       await refresh();
+      setSaved(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed');
+    }
+  }
+
+  async function onSaveProjection(e: FormEvent) {
+    e.preventDefault();
+    setSaved(false);
+    setError('');
+    try {
+      const next = await api.updateSettings({
+        projection: {
+          returnsPct: Number(projection.returnsPct),
+          incomeGrowthPct: Number(projection.incomeGrowthPct),
+          expenseGrowthPct: Number(projection.expenseGrowthPct),
+          years: Number(projection.years),
+        },
+      });
+      setUser(next.user);
+      setProjection(next.projection || DEFAULT_PROJECTION_SETTINGS);
       setSaved(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed');
@@ -68,6 +107,7 @@ export function SettingsPage() {
       const settings = await api.settings();
       setUser(settings.user);
       setTelegram(settings.telegram);
+      if (settings.projection) setProjection(settings.projection);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Test send failed');
     } finally {
@@ -85,10 +125,10 @@ export function SettingsPage() {
     <div className="page-stack">
       <header className="page-head">
         <p className="eyebrow">Settings</p>
-        <h1>Plans & notifications</h1>
+        <h1>Plans, alerts & projections</h1>
       </header>
 
-      <div className="chip-row">
+      <div className="chip-row wrap">
         <button
           type="button"
           className={`chip${tab === 'profile' ? ' active' : ''}`}
@@ -109,6 +149,13 @@ export function SettingsPage() {
           onClick={() => setTab('plan')}
         >
           Plan
+        </button>
+        <button
+          type="button"
+          className={`chip${tab === 'projection' ? ' active' : ''}`}
+          onClick={() => setTab('projection')}
+        >
+          Projection
         </button>
         <button
           type="button"
@@ -255,6 +302,93 @@ export function SettingsPage() {
 
           <button className="btn primary" type="submit">
             Save plan
+          </button>
+        </form>
+      )}
+
+      {tab === 'projection' && (
+        <form
+          className="panel-block form-grid"
+          onSubmit={(e) => void onSaveProjection(e)}
+        >
+          <p className="muted">
+            These assumptions drive the net-worth projection card and chart on
+            the{' '}
+            <Link to="/" className="text-link">
+              Dashboard
+            </Link>
+            .
+          </p>
+          <label>
+            Returns percentage (% p.a.)
+            <input
+              type="number"
+              min={-50}
+              max={100}
+              step={0.5}
+              value={projection.returnsPct}
+              onChange={(e) =>
+                setProjection((p) => ({
+                  ...p,
+                  returnsPct: Number(e.target.value),
+                }))
+              }
+            />
+          </label>
+          <label>
+            Income growth percentage (% p.a.)
+            <input
+              type="number"
+              min={-50}
+              max={100}
+              step={0.5}
+              value={projection.incomeGrowthPct}
+              onChange={(e) =>
+                setProjection((p) => ({
+                  ...p,
+                  incomeGrowthPct: Number(e.target.value),
+                }))
+              }
+            />
+          </label>
+          <label>
+            Expenses growth percentage (% p.a.)
+            <input
+              type="number"
+              min={-50}
+              max={100}
+              step={0.5}
+              value={projection.expenseGrowthPct}
+              onChange={(e) =>
+                setProjection((p) => ({
+                  ...p,
+                  expenseGrowthPct: Number(e.target.value),
+                }))
+              }
+            />
+          </label>
+          <label>
+            Projection years
+            <input
+              type="number"
+              min={1}
+              max={50}
+              step={1}
+              value={projection.years}
+              onChange={(e) =>
+                setProjection((p) => ({
+                  ...p,
+                  years: Number(e.target.value),
+                }))
+              }
+            />
+          </label>
+          <p className="muted tiny">
+            Investments compound monthly at the returns rate. Income and
+            expenses step up once per year.
+          </p>
+          <button className="btn primary" type="submit">
+            Save projection settings
           </button>
         </form>
       )}

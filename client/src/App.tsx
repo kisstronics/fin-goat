@@ -10,7 +10,6 @@ import { HomePage } from './pages/HomePage';
 import { LoginPage } from './pages/LoginPage';
 import { PortfolioPage } from './pages/PortfolioPage';
 import { PrivacyPage } from './pages/PrivacyPage';
-import { RecurringPage } from './pages/RecurringPage';
 import { MarketPage } from './pages/MarketPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { StockDetailPage } from './pages/StockDetailPage';
@@ -92,11 +91,7 @@ export default function App() {
       <Route path="/screeners" element={<Navigate to="/market" replace />} />
       <Route
         path="/recurring"
-        element={
-          <Protected>
-            <RecurringPage />
-          </Protected>
-        }
+        element={<Navigate to="/portfolio?tab=income" replace />}
       />
       <Route
         path="/settings"
