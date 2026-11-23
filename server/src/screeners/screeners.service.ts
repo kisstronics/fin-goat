@@ -72,7 +72,10 @@ export class ScreenersService {
     const keys = Object.keys(SCREENER_META) as ScreenerKey[];
     const stamp = new Date().toISOString();
     const [tickers, features] = await Promise.all([
-      this.store.listTickers(),
+      this.store.listTickers({
+        activeOnly: true,
+        includeInScreener: true,
+      }),
       this.store.listFeatures(),
     ]);
 
@@ -87,12 +90,20 @@ export class ScreenersService {
           screener: key,
           matchedAt: stamp,
           reason: `${reason} · ${triggeredBy}`,
+          // Stable while the ticker keeps matching this screener — price ticks
+          // must not re-trigger the same alert.
+          fingerprint: key,
         });
       }
     }
 
     await this.store.replaceScreenerResults(results);
     return results;
+  }
+
+  private fingerprintOf(result: ScreenerResult): string {
+    // Presence-based: same ticker+screener stays silenced until it drops out.
+    return result.fingerprint || result.screener;
   }
 
   async getResults(screener?: ScreenerKey) {
@@ -131,16 +142,42 @@ export class ScreenersService {
     ]);
     const byId = new Map(tickers.map((t) => [t.id, t]));
     const stamp = new Date().toISOString();
+    const activeKeys = results.map((r) => ({
+      tickerId: r.tickerId,
+      screener: r.screener,
+    }));
 
     for (const user of users) {
-      const fresh = results.slice(0, 5);
-      if (!fresh.length) continue;
-      const body = fresh
+      // Clear sent-state for matches that dropped out so a rematch can alert.
+      await this.store.pruneScreenerAlertSent(user.id, activeKeys);
+
+      const previouslySent = await this.store.listScreenerAlertSent(user.id);
+      const sentByKey = new Map(
+        previouslySent.map((s) => [`${s.tickerId}:${s.screener}`, s]),
+      );
+
+      const fresh = results.filter((r) => {
+        const prior = sentByKey.get(`${r.tickerId}:${r.screener}`);
+        if (!prior) return true;
+        return prior.fingerprint !== this.fingerprintOf(r);
+      });
+
+      if (!fresh.length) {
+        this.logger.debug(
+          `Skipping screener alerts for ${user.id} — no new/changed matches`,
+        );
+        continue;
+      }
+
+      const digest = fresh.slice(0, 5);
+      const body = digest
         .map((r) => {
           const t = byId.get(r.tickerId);
           return `${t?.symbol || r.tickerId}: ${r.reason}`;
         })
         .join('\n');
+
+      let delivered = false;
 
       if (user.notifyEmail) {
         const title = 'Fin Goat screener digest';
@@ -154,6 +191,8 @@ export class ScreenersService {
           this.logger.warn(
             `Email alert failed for ${user.id}: ${sent.error}`,
           );
+        } else {
+          delivered = true;
         }
         await this.store.createAlert({
           id: uuid(),
@@ -176,6 +215,8 @@ export class ScreenersService {
           this.logger.warn(
             `Telegram alert failed for ${user.id}: ${sent.error}`,
           );
+        } else {
+          delivered = true;
         }
         await this.store.createAlert({
           id: uuid(),
@@ -186,6 +227,21 @@ export class ScreenersService {
           createdAt: stamp,
           status: sent.ok ? 'sent' : 'failed',
         });
+      }
+
+      // Only mark the matches we actually included, after at least one channel
+      // delivered — so a total failure (and overflow beyond the digest cap)
+      // can retry on the next run.
+      if (delivered) {
+        for (const r of digest) {
+          await this.store.upsertScreenerAlertSent({
+            userId: user.id,
+            tickerId: r.tickerId,
+            screener: r.screener,
+            fingerprint: this.fingerprintOf(r),
+            sentAt: stamp,
+          });
+        }
       }
     }
   }

@@ -18,6 +18,7 @@ import {
 } from './seed';
 import type {
   AlertLog,
+  AnnouncementAlertSent,
   AnnouncementAlertStock,
   AppSetting,
   CronJobKey,
@@ -34,11 +35,13 @@ import type {
   PlanId,
   PriceBar,
   RecurringItem,
+  ScreenerAlertSent,
   ScreenerKey,
   ScreenerResult,
   SmtpSettings,
   TelegramSettings,
   Ticker,
+  TickerPage,
   User,
   WatchlistItem,
 } from './types';
@@ -264,6 +267,24 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
 
+      CREATE TABLE IF NOT EXISTS screener_alert_sent (
+        id UUID PRIMARY KEY,
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        ticker_id UUID NOT NULL REFERENCES tickers(id) ON DELETE CASCADE,
+        screener TEXT NOT NULL,
+        fingerprint TEXT NOT NULL,
+        last_sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (user_id, ticker_id, screener)
+      );
+
+      CREATE TABLE IF NOT EXISTS announcement_alert_sent (
+        id UUID PRIMARY KEY,
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        announcement_id UUID NOT NULL REFERENCES nse_announcements(id) ON DELETE CASCADE,
+        last_sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (user_id, announcement_id)
+      );
+
       CREATE TABLE IF NOT EXISTS cron_runs (
         id UUID PRIMARY KEY,
         job TEXT NOT NULL,
@@ -337,6 +358,10 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
 
       CREATE INDEX IF NOT EXISTS idx_holdings_user ON holdings(user_id);
       CREATE INDEX IF NOT EXISTS idx_alerts_user ON alerts(user_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_screener_alert_sent_user
+        ON screener_alert_sent(user_id);
+      CREATE INDEX IF NOT EXISTS idx_announcement_alert_sent_user
+        ON announcement_alert_sent(user_id);
       CREATE INDEX IF NOT EXISTS idx_screener_results_key ON screener_results(screener, matched_at DESC);
       CREATE INDEX IF NOT EXISTS idx_cron_runs_started ON cron_runs(started_at DESC);
       CREATE INDEX IF NOT EXISTS idx_recurring_user ON recurring_items(user_id, kind);
@@ -354,6 +379,10 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
       ALTER TABLE users ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT 'dev';
       ALTER TABLE users ADD COLUMN IF NOT EXISTS picture TEXT;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id TEXT;
+      ALTER TABLE tickers
+        ADD COLUMN IF NOT EXISTS include_in_screener BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE tickers
+        ADD COLUMN IF NOT EXISTS include_in_announcements BOOLEAN NOT NULL DEFAULT FALSE;
     `);
 
     await this.ensureAppSettings();
@@ -588,7 +617,9 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
       volume: Number(row.volume),
       marketCapCr: Number(row.market_cap_cr),
       pe: row.pe == null ? undefined : Number(row.pe),
-      active: row.active,
+      active: Boolean(row.active),
+      includeInScreener: Boolean(row.include_in_screener),
+      includeInAnnouncements: Boolean(row.include_in_announcements),
       updatedAt: new Date(row.updated_at).toISOString(),
     };
   }
@@ -625,6 +656,28 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
       screener: row.screener,
       matchedAt: new Date(row.matched_at).toISOString(),
       reason: row.reason,
+      // Stable while the ticker keeps matching — do not include price ticks.
+      fingerprint: row.screener,
+    };
+  }
+
+  private mapScreenerAlertSent(row: QueryResultRow): ScreenerAlertSent {
+    return {
+      id: row.id,
+      userId: row.user_id,
+      tickerId: row.ticker_id,
+      screener: row.screener,
+      fingerprint: row.fingerprint,
+      lastSentAt: new Date(row.last_sent_at).toISOString(),
+    };
+  }
+
+  private mapAnnouncementAlertSent(row: QueryResultRow): AnnouncementAlertSent {
+    return {
+      id: row.id,
+      userId: row.user_id,
+      announcementId: row.announcement_id,
+      lastSentAt: new Date(row.last_sent_at).toISOString(),
     };
   }
 
@@ -706,9 +759,10 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
       `INSERT INTO tickers (
          id, crn, symbol, exchange, name, sector, industry, isin,
          price, prev_close, sma50, sma200, high52w, low52w, volume,
-         market_cap_cr, pe, active, updated_at
+         market_cap_cr, pe, active, include_in_screener, include_in_announcements,
+         updated_at
        ) VALUES (
-         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19
+         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21
        )
        ON CONFLICT (id) DO NOTHING`,
       [
@@ -730,6 +784,8 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
         ticker.marketCapCr,
         ticker.pe ?? null,
         ticker.active,
+        ticker.includeInScreener,
+        ticker.includeInAnnouncements,
         ticker.updatedAt,
       ],
     );
@@ -1450,11 +1506,79 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
 
   // ——— Tickers ———
 
-  async listTickers(): Promise<Ticker[]> {
+  async listTickers(opts?: {
+    includeInScreener?: boolean;
+    includeInAnnouncements?: boolean;
+    activeOnly?: boolean;
+  }): Promise<Ticker[]> {
+    const clauses: string[] = [];
+    const params: unknown[] = [];
+    if (opts?.activeOnly) {
+      clauses.push('active = TRUE');
+    }
+    if (opts?.includeInScreener != null) {
+      params.push(opts.includeInScreener);
+      clauses.push(`include_in_screener = $${params.length}`);
+    }
+    if (opts?.includeInAnnouncements != null) {
+      params.push(opts.includeInAnnouncements);
+      clauses.push(`include_in_announcements = $${params.length}`);
+    }
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
     const { rows } = await this.query(
-      'SELECT * FROM tickers ORDER BY symbol ASC',
+      `SELECT * FROM tickers ${where} ORDER BY symbol ASC`,
+      params,
     );
     return rows.map((r) => this.mapTicker(r));
+  }
+
+  async listTickersPaged(opts?: {
+    page?: number;
+    pageSize?: number;
+    q?: string;
+    includeInScreener?: boolean;
+    includeInAnnouncements?: boolean;
+  }): Promise<TickerPage> {
+    const pageSize = Math.min(100, Math.max(1, opts?.pageSize || 25));
+    const page = Math.max(1, opts?.page || 1);
+    const offset = (page - 1) * pageSize;
+    const q = opts?.q?.trim() || '';
+    const params: unknown[] = [];
+    const clauses: string[] = [];
+    if (q) {
+      params.push(`%${q.toLowerCase()}%`);
+      clauses.push(
+        `(lower(symbol) LIKE $${params.length} OR lower(name) LIKE $${params.length} OR lower(crn) LIKE $${params.length})`,
+      );
+    }
+    if (opts?.includeInScreener != null) {
+      params.push(opts.includeInScreener);
+      clauses.push(`include_in_screener = $${params.length}`);
+    }
+    if (opts?.includeInAnnouncements != null) {
+      params.push(opts.includeInAnnouncements);
+      clauses.push(`include_in_announcements = $${params.length}`);
+    }
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+    const countParams = [...params];
+    const { rows: countRows } = await this.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM tickers ${where}`,
+      countParams,
+    );
+    const total = Number(countRows[0]?.count || 0);
+    params.push(pageSize, offset);
+    const { rows } = await this.query(
+      `SELECT * FROM tickers ${where}
+       ORDER BY symbol ASC
+       LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      params,
+    );
+    return {
+      items: rows.map((r) => this.mapTicker(r)),
+      total,
+      page,
+      pageSize,
+    };
   }
 
   async findTicker(id: string): Promise<Ticker | null> {
@@ -1482,6 +1606,34 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
     return Number(rows[0]?.count || 0);
   }
 
+  async updateTickerInclusion(
+    id: string,
+    patch: {
+      includeInScreener?: boolean;
+      includeInAnnouncements?: boolean;
+    },
+  ): Promise<Ticker | null> {
+    const existing = await this.findTicker(id);
+    if (!existing) return null;
+    const includeInScreener =
+      patch.includeInScreener !== undefined
+        ? patch.includeInScreener
+        : existing.includeInScreener;
+    const includeInAnnouncements =
+      patch.includeInAnnouncements !== undefined
+        ? patch.includeInAnnouncements
+        : existing.includeInAnnouncements;
+    await this.query(
+      `UPDATE tickers SET
+         include_in_screener = $2,
+         include_in_announcements = $3,
+         updated_at = NOW()
+       WHERE id = $1`,
+      [id, includeInScreener, includeInAnnouncements],
+    );
+    return this.findTicker(id);
+  }
+
   async upsertTicker(
     body: Partial<Ticker> & { symbol: string; name: string },
   ): Promise<Ticker> {
@@ -1492,13 +1644,22 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
         ...existing,
         ...body,
         symbol: (body.symbol || existing.symbol).toUpperCase(),
+        includeInScreener:
+          body.includeInScreener !== undefined
+            ? body.includeInScreener
+            : existing.includeInScreener,
+        includeInAnnouncements:
+          body.includeInAnnouncements !== undefined
+            ? body.includeInAnnouncements
+            : existing.includeInAnnouncements,
         updatedAt: new Date().toISOString(),
       };
       await this.query(
         `UPDATE tickers SET
            crn=$2, symbol=$3, exchange=$4, name=$5, sector=$6, industry=$7, isin=$8,
            price=$9, prev_close=$10, sma50=$11, sma200=$12, high52w=$13, low52w=$14,
-           volume=$15, market_cap_cr=$16, pe=$17, active=$18, updated_at=$19
+           volume=$15, market_cap_cr=$16, pe=$17, active=$18,
+           include_in_screener=$19, include_in_announcements=$20, updated_at=$21
          WHERE id=$1`,
         [
           next.id,
@@ -1519,6 +1680,8 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
           next.marketCapCr,
           next.pe ?? null,
           next.active,
+          next.includeInScreener,
+          next.includeInAnnouncements,
           next.updatedAt,
         ],
       );
@@ -1545,6 +1708,8 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
       marketCapCr: body.marketCapCr ?? 0,
       pe: body.pe,
       active: body.active ?? true,
+      includeInScreener: body.includeInScreener ?? false,
+      includeInAnnouncements: body.includeInAnnouncements ?? false,
       updatedAt: new Date().toISOString(),
     };
     await this.insertTicker(ticker);
@@ -1934,6 +2099,95 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
+  // ——— Screener alert dedupe ———
+
+  async listScreenerAlertSent(userId: string): Promise<ScreenerAlertSent[]> {
+    const { rows } = await this.query(
+      `SELECT * FROM screener_alert_sent WHERE user_id = $1`,
+      [userId],
+    );
+    return rows.map((r) => this.mapScreenerAlertSent(r));
+  }
+
+  async upsertScreenerAlertSent(item: {
+    userId: string;
+    tickerId: string;
+    screener: ScreenerKey;
+    fingerprint: string;
+    sentAt: string;
+  }): Promise<void> {
+    await this.query(
+      `INSERT INTO screener_alert_sent (
+         id, user_id, ticker_id, screener, fingerprint, last_sent_at
+       ) VALUES ($1,$2,$3,$4,$5,$6)
+       ON CONFLICT (user_id, ticker_id, screener) DO UPDATE SET
+         fingerprint = EXCLUDED.fingerprint,
+         last_sent_at = EXCLUDED.last_sent_at`,
+      [
+        uuid(),
+        item.userId,
+        item.tickerId,
+        item.screener,
+        item.fingerprint,
+        item.sentAt,
+      ],
+    );
+  }
+
+  /**
+   * Drop sent-state for ticker+screener pairs that are no longer matching so a
+   * future rematch can alert again.
+   */
+  async pruneScreenerAlertSent(
+    userId: string,
+    active: { tickerId: string; screener: ScreenerKey }[],
+  ): Promise<void> {
+    if (!active.length) {
+      await this.query(`DELETE FROM screener_alert_sent WHERE user_id = $1`, [
+        userId,
+      ]);
+      return;
+    }
+    const keys = active.map((a) => `${a.tickerId}:${a.screener}`);
+    await this.query(
+      `DELETE FROM screener_alert_sent
+       WHERE user_id = $1
+         AND (ticker_id::text || ':' || screener) <> ALL($2::text[])`,
+      [userId, keys],
+    );
+  }
+
+  // ——— Announcement alert dedupe ———
+
+  async listAnnouncementAlertSentIds(
+    userId: string,
+    announcementIds: string[],
+  ): Promise<Set<string>> {
+    if (!announcementIds.length) return new Set();
+    const { rows } = await this.query<{ announcement_id: string }>(
+      `SELECT announcement_id::text AS announcement_id
+       FROM announcement_alert_sent
+       WHERE user_id = $1 AND announcement_id = ANY($2::uuid[])`,
+      [userId, announcementIds],
+    );
+    return new Set(rows.map((r) => r.announcement_id));
+  }
+
+  async markAnnouncementAlertSent(
+    userId: string,
+    announcementId: string,
+    sentAt = new Date().toISOString(),
+  ): Promise<void> {
+    await this.query(
+      `INSERT INTO announcement_alert_sent (
+         id, user_id, announcement_id, last_sent_at
+       ) VALUES ($1,$2,$3,$4)
+       ON CONFLICT (user_id, announcement_id) DO UPDATE SET
+         last_sent_at = EXCLUDED.last_sent_at`,
+      [uuid(), userId, announcementId, sentAt],
+    );
+  }
+
   async listAlerts(userId: string, limit = 50): Promise<AlertLog[]> {
     const { rows } = await this.query(
       `SELECT * FROM alerts WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2`,
@@ -2198,6 +2452,7 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
        FROM announcement_alert_stocks a
        JOIN tickers t ON t.id = a.ticker_id
        WHERE t.active = true
+         AND t.include_in_announcements = true
        GROUP BY upper(t.symbol), t.id
        ORDER BY upper(t.symbol)`,
     );

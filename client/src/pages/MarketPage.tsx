@@ -18,30 +18,15 @@ type StockSortKey = 'symbol' | 'name' | 'price' | 'sector' | 'change' | 'updated
 const PAGE_SIZES = [10, 25, 50];
 
 export function MarketPage() {
-  const [tab, setTab] = useState<MarketTab>('screener');
+  const [tab, setTab] = useState<MarketTab>('stocks');
 
   return (
-    <div className="page-stack">
-      <header className="page-head">
-        <p className="eyebrow">Market</p>
-        <h1>Market intelligence</h1>
-        <p className="muted">
-          Screen NSE names, browse prices, manage your stock watchlist, and
-          follow corporate announcements. Screens are analytical — not buy/sell
-          recommendations.
-        </p>
-      </header>
-
-      <div className="chip-row wrap">
+    <div className="page-stack market-console">
+      <div className="chip-row wrap admin-tabs" role="tablist" aria-label="Market sections">
         <button
           type="button"
-          className={`chip${tab === 'screener' ? ' active' : ''}`}
-          onClick={() => setTab('screener')}
-        >
-          Screener
-        </button>
-        <button
-          type="button"
+          role="tab"
+          aria-selected={tab === 'stocks'}
           className={`chip${tab === 'stocks' ? ' active' : ''}`}
           onClick={() => setTab('stocks')}
         >
@@ -49,6 +34,17 @@ export function MarketPage() {
         </button>
         <button
           type="button"
+          role="tab"
+          aria-selected={tab === 'screener'}
+          className={`chip${tab === 'screener' ? ' active' : ''}`}
+          onClick={() => setTab('screener')}
+        >
+          Screener
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'watchlist'}
           className={`chip${tab === 'watchlist' ? ' active' : ''}`}
           onClick={() => setTab('watchlist')}
         >
@@ -56,6 +52,8 @@ export function MarketPage() {
         </button>
         <button
           type="button"
+          role="tab"
+          aria-selected={tab === 'announcements'}
           className={`chip${tab === 'announcements' ? ' active' : ''}`}
           onClick={() => setTab('announcements')}
         >
@@ -63,11 +61,9 @@ export function MarketPage() {
         </button>
       </div>
 
-      {tab === 'screener' && <ScreenerPanel />}
       {tab === 'stocks' && <StocksPanel />}
-      {tab === 'watchlist' && (
-        <WatchlistPanel onOpenAnnouncements={() => setTab('announcements')} />
-      )}
+      {tab === 'screener' && <ScreenerPanel />}
+      {tab === 'watchlist' && <WatchlistPanel />}
       {tab === 'announcements' && (
         <AnnouncementsPanel onOpenWatchlist={() => setTab('watchlist')} />
       )}
@@ -284,20 +280,19 @@ function ScreenerPanel() {
         ))}
       </div>
 
-      <section className="panel-block screener-filters">
-        <label>
-          Search
-          <input
-            value={query}
-            onChange={(e) => {
-              setQuery(e.target.value);
-              setPage(1);
-            }}
-            placeholder="Symbol, name, or reason"
-          />
-        </label>
-        <label>
-          Sector
+      <div className="ticker-filters">
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setPage(1);
+          }}
+          placeholder="Search symbol, name, or reason"
+          aria-label="Search screener results"
+        />
+        <label className="filter-field">
+          <span>Sector</span>
           <select
             value={sector}
             onChange={(e) => {
@@ -305,7 +300,7 @@ function ScreenerPanel() {
               setPage(1);
             }}
           >
-            <option value="all">All sectors</option>
+            <option value="all">All</option>
             {sectors.map((s) => (
               <option key={s} value={s}>
                 {s}
@@ -313,8 +308,8 @@ function ScreenerPanel() {
             ))}
           </select>
         </label>
-        <label>
-          Rows per page
+        <label className="filter-field">
+          <span>Rows</span>
           <select
             value={pageSize}
             onChange={(e) => {
@@ -329,17 +324,31 @@ function ScreenerPanel() {
             ))}
           </select>
         </label>
-        <p className="muted tiny filter-meta">
-          Showing {pageRows.length} of {filtered.length} matches
-          {filtered.length !== results.length
-            ? ` (filtered from ${results.length})`
-            : ''}
-        </p>
-      </section>
+        {(query || sector !== 'all') && (
+          <button
+            type="button"
+            className="btn ghost"
+            onClick={() => {
+              setQuery('');
+              setSector('all');
+              setPage(1);
+            }}
+          >
+            Clear
+          </button>
+        )}
+      </div>
 
       {error && <p className="error">{error}</p>}
 
-      <div className="table-wrap panel-block">
+      <TableToolbar
+        label={`${rangeLabel(safePage, pageSize, filtered.length)} matches · ${totalPages} page${totalPages === 1 ? '' : 's'}`}
+        safePage={safePage}
+        totalPages={totalPages}
+        onPage={setPage}
+      />
+
+      <div className="table-wrap">
         <table className="data-table">
           <thead>
             <tr>
@@ -440,13 +449,6 @@ function ScreenerPanel() {
           </tbody>
         </table>
       </div>
-
-      <Pager
-        safePage={safePage}
-        totalPages={totalPages}
-        onPrev={() => setPage((p) => Math.max(1, p - 1))}
-        onNext={() => setPage((p) => Math.min(totalPages, p + 1))}
-      />
     </>
   );
 }
@@ -556,20 +558,19 @@ function StocksPanel() {
 
   return (
     <>
-      <section className="panel-block screener-filters">
-        <label>
-          Search
-          <input
-            value={query}
-            onChange={(e) => {
-              setQuery(e.target.value);
-              setPage(1);
-            }}
-            placeholder="Symbol, name, or CRN"
-          />
-        </label>
-        <label>
-          Sector
+      <div className="ticker-filters">
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setPage(1);
+          }}
+          placeholder="Search symbol, name, or CRN"
+          aria-label="Search stocks"
+        />
+        <label className="filter-field">
+          <span>Sector</span>
           <select
             value={sector}
             onChange={(e) => {
@@ -577,7 +578,7 @@ function StocksPanel() {
               setPage(1);
             }}
           >
-            <option value="all">All sectors</option>
+            <option value="all">All</option>
             {sectors.map((s) => (
               <option key={s} value={s}>
                 {s}
@@ -585,8 +586,8 @@ function StocksPanel() {
             ))}
           </select>
         </label>
-        <label>
-          Rows per page
+        <label className="filter-field">
+          <span>Rows</span>
           <select
             value={pageSize}
             onChange={(e) => {
@@ -601,17 +602,31 @@ function StocksPanel() {
             ))}
           </select>
         </label>
-        <p className="muted tiny filter-meta">
-          Showing {pageRows.length} of {filtered.length} stocks
-          {filtered.length !== tickers.length
-            ? ` (filtered from ${tickers.length})`
-            : ''}
-        </p>
-      </section>
+        {(query || sector !== 'all') && (
+          <button
+            type="button"
+            className="btn ghost"
+            onClick={() => {
+              setQuery('');
+              setSector('all');
+              setPage(1);
+            }}
+          >
+            Clear
+          </button>
+        )}
+      </div>
 
       {error && <p className="error">{error}</p>}
 
-      <div className="table-wrap panel-block">
+      <TableToolbar
+        label={`${rangeLabel(safePage, pageSize, filtered.length)} stocks · ${totalPages} page${totalPages === 1 ? '' : 's'}`}
+        safePage={safePage}
+        totalPages={totalPages}
+        onPage={setPage}
+      />
+
+      <div className="table-wrap">
         <table className="data-table">
           <thead>
             <tr>
@@ -718,25 +733,23 @@ function StocksPanel() {
           </tbody>
         </table>
       </div>
-
-      <Pager
-        safePage={safePage}
-        totalPages={totalPages}
-        onPrev={() => setPage((p) => Math.max(1, p - 1))}
-        onNext={() => setPage((p) => Math.min(totalPages, p + 1))}
-      />
     </>
   );
 }
 
-function WatchlistPanel({
-  onOpenAnnouncements,
-}: {
-  onOpenAnnouncements: () => void;
-}) {
+type WatchSortKey = 'symbol' | 'name' | 'sector' | 'price' | 'createdAt';
+type AnnounceSortKey = 'symbol' | 'subject' | 'companyName' | 'announcedAt';
+
+function WatchlistPanel() {
   const [stocks, setStocks] = useState<AnnouncementAlertStock[]>([]);
-  const [tickerQuery, setTickerQuery] = useState('');
+  const [addQuery, setAddQuery] = useState('');
   const [tickerHits, setTickerHits] = useState<Ticker[]>([]);
+  const [listQuery, setListQuery] = useState('');
+  const [sector, setSector] = useState('all');
+  const [sortKey, setSortKey] = useState<WatchSortKey>('symbol');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [error, setError] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -751,7 +764,7 @@ function WatchlistPanel({
   }, []);
 
   useEffect(() => {
-    const q = tickerQuery.trim();
+    const q = addQuery.trim();
     if (q.length < 1) {
       setTickerHits([]);
       return;
@@ -763,7 +776,7 @@ function WatchlistPanel({
         .catch(() => setTickerHits([]));
     }, 250);
     return () => window.clearTimeout(handle);
-  }, [tickerQuery]);
+  }, [addQuery]);
 
   async function addStock(ticker: Ticker) {
     setError('');
@@ -771,7 +784,7 @@ function WatchlistPanel({
     try {
       await api.addAnnouncementAlertStock(ticker.id);
       await load();
-      setTickerQuery('');
+      setAddQuery('');
       setTickerHits([]);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not add stock');
@@ -793,106 +806,307 @@ function WatchlistPanel({
     }
   }
 
+  const sectors = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of stocks) {
+      const sectorName = s.ticker?.sector?.trim();
+      if (sectorName) set.add(sectorName);
+    }
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [stocks]);
+
+  const filtered = useMemo(() => {
+    const q = listQuery.trim().toLowerCase();
+    let rows = stocks;
+    if (q) {
+      rows = rows.filter((s) => {
+        const symbol = (s.ticker?.symbol || '').toLowerCase();
+        const name = (s.ticker?.name || '').toLowerCase();
+        return symbol.includes(q) || name.includes(q);
+      });
+    }
+    if (sector !== 'all') {
+      rows = rows.filter((s) => s.ticker?.sector === sector);
+    }
+    const dir = sortDir === 'asc' ? 1 : -1;
+    return [...rows].sort((a, b) => {
+      const av =
+        sortKey === 'symbol'
+          ? a.ticker?.symbol || ''
+          : sortKey === 'name'
+            ? a.ticker?.name || ''
+            : sortKey === 'sector'
+              ? a.ticker?.sector || ''
+              : sortKey === 'price'
+                ? (a.ticker?.price ?? 0)
+                : a.createdAt;
+      const bv =
+        sortKey === 'symbol'
+          ? b.ticker?.symbol || ''
+          : sortKey === 'name'
+            ? b.ticker?.name || ''
+            : sortKey === 'sector'
+              ? b.ticker?.sector || ''
+              : sortKey === 'price'
+                ? (b.ticker?.price ?? 0)
+                : b.createdAt;
+      if (typeof av === 'number' && typeof bv === 'number') {
+        return (av - bv) * dir;
+      }
+      return String(av).localeCompare(String(bv)) * dir;
+    });
+  }, [stocks, listQuery, sector, sortKey, sortDir]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize) || 1);
+  const safePage = Math.min(page, totalPages);
+  const pageRows = filtered.slice(
+    (safePage - 1) * pageSize,
+    safePage * pageSize,
+  );
+
+  function toggleSort(key: WatchSortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(key);
+      setSortDir(key === 'price' || key === 'createdAt' ? 'desc' : 'asc');
+    }
+  }
+
+  function sortMark(key: WatchSortKey) {
+    if (sortKey !== key) return '';
+    return sortDir === 'asc' ? ' ↑' : ' ↓';
+  }
+
   return (
     <>
-      <section className="panel-block form-grid">
-        <div className="panel-head-row">
-          <div>
-            <h2 style={{ margin: 0 }}>Stock watchlist</h2>
-            <p className="muted tiny">
-              Create and manage stocks for NSE announcement alerts. New filings
-              for these names are stored and sent via Telegram/email when
-              notifications are on.
-            </p>
-          </div>
+      <p className="muted tiny">
+        Stocks watched for NSE announcement alerts.
+      </p>
+
+      <div className="ticker-filters">
+        <input
+          type="search"
+          value={addQuery}
+          onChange={(e) => setAddQuery(e.target.value)}
+          placeholder="Add stock — search symbol or name"
+          aria-label="Add stock to watchlist"
+        />
+      </div>
+
+      {error && <p className="error">{error}</p>}
+
+      {tickerHits.length > 0 && (
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Symbol</th>
+                <th>Name</th>
+                <th>Sector</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {tickerHits.map((t) => {
+                const already = stocks.some((s) => s.tickerId === t.id);
+                return (
+                  <tr key={t.id}>
+                    <td className="nowrap">
+                      <strong>{t.symbol}</strong>
+                      <span className="muted tiny"> {t.exchange}</span>
+                    </td>
+                    <td>{t.name}</td>
+                    <td>{t.sector || '—'}</td>
+                    <td className="num">
+                      <button
+                        type="button"
+                        className="btn secondary"
+                        disabled={already || busyId === t.id}
+                        onClick={() => void addStock(t)}
+                      >
+                        {already
+                          ? 'Added'
+                          : busyId === t.id
+                            ? 'Adding…'
+                            : 'Add'}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div className="ticker-filters">
+        <input
+          type="search"
+          value={listQuery}
+          onChange={(e) => {
+            setListQuery(e.target.value);
+            setPage(1);
+          }}
+          placeholder="Filter watchlist"
+          aria-label="Filter watchlist"
+        />
+        <label className="filter-field">
+          <span>Sector</span>
+          <select
+            value={sector}
+            onChange={(e) => {
+              setSector(e.target.value);
+              setPage(1);
+            }}
+          >
+            <option value="all">All</option>
+            {sectors.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="filter-field">
+          <span>Rows</span>
+          <select
+            value={pageSize}
+            onChange={(e) => {
+              setPageSize(Number(e.target.value));
+              setPage(1);
+            }}
+          >
+            {PAGE_SIZES.map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+        </label>
+        {(listQuery || sector !== 'all') && (
           <button
             type="button"
-            className="text-link"
-            onClick={onOpenAnnouncements}
+            className="btn ghost"
+            onClick={() => {
+              setListQuery('');
+              setSector('all');
+              setPage(1);
+            }}
           >
-            View announcements
+            Clear
           </button>
-        </div>
-
-        <label>
-          Search & add stock
-          <input
-            value={tickerQuery}
-            onChange={(e) => setTickerQuery(e.target.value)}
-            placeholder="Symbol or company name"
-          />
-        </label>
-
-        {error && <p className="error">{error}</p>}
-
-        {tickerHits.length > 0 && (
-          <ul className="holding-list">
-            {tickerHits.map((t) => {
-              const already = stocks.some((s) => s.tickerId === t.id);
-              return (
-                <li key={t.id} className="holding-card">
-                  <div className="holding-main">
-                    <div>
-                      <h3>
-                        {t.symbol} · {t.exchange}
-                      </h3>
-                      <p className="muted tiny">{t.name}</p>
-                    </div>
-                    <button
-                      type="button"
-                      className="btn secondary"
-                      disabled={already || busyId === t.id}
-                      onClick={() => void addStock(t)}
-                    >
-                      {already
-                        ? 'On watchlist'
-                        : busyId === t.id
-                          ? 'Adding…'
-                          : 'Add'}
-                    </button>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
         )}
-      </section>
+      </div>
 
-      <section className="panel-block">
-        <div className="panel-head-row">
-          <h2>Your watchlist</h2>
-          <span className="muted tiny">{stocks.length}</span>
-        </div>
-        <ul className="holding-list">
-          {stocks.length === 0 && (
-            <li className="muted">
-              No stocks yet. Search above to add names you want announcement
-              alerts for.
-            </li>
-          )}
-          {stocks.map((s) => (
-            <li key={s.id} className="holding-card">
-              <div className="holding-main">
-                <div>
-                  <h3>
-                    {s.ticker?.symbol || s.tickerId}
-                    {s.ticker?.exchange ? ` · ${s.ticker.exchange}` : ''}
-                  </h3>
-                  <p className="muted tiny">{s.ticker?.name || ''}</p>
-                </div>
+      <TableToolbar
+        label={`${rangeLabel(safePage, pageSize, filtered.length)} watched · ${totalPages} page${totalPages === 1 ? '' : 's'}`}
+        safePage={safePage}
+        totalPages={totalPages}
+        onPage={setPage}
+      />
+
+      <div className="table-wrap">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>
                 <button
                   type="button"
-                  className="linkish"
-                  disabled={busyId === s.id}
-                  onClick={() => void removeStock(s.id)}
+                  className="th-btn"
+                  onClick={() => toggleSort('symbol')}
                 >
-                  {busyId === s.id ? 'Removing…' : 'Remove'}
+                  Symbol{sortMark('symbol')}
                 </button>
-              </div>
-            </li>
-          ))}
-        </ul>
-      </section>
+              </th>
+              <th>
+                <button
+                  type="button"
+                  className="th-btn"
+                  onClick={() => toggleSort('name')}
+                >
+                  Name{sortMark('name')}
+                </button>
+              </th>
+              <th>
+                <button
+                  type="button"
+                  className="th-btn"
+                  onClick={() => toggleSort('sector')}
+                >
+                  Sector{sortMark('sector')}
+                </button>
+              </th>
+              <th className="num">
+                <button
+                  type="button"
+                  className="th-btn"
+                  onClick={() => toggleSort('price')}
+                >
+                  Price{sortMark('price')}
+                </button>
+              </th>
+              <th>
+                <button
+                  type="button"
+                  className="th-btn"
+                  onClick={() => toggleSort('createdAt')}
+                >
+                  Added{sortMark('createdAt')}
+                </button>
+              </th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {pageRows.length === 0 && (
+              <tr>
+                <td colSpan={6} className="muted">
+                  No stocks yet. Search above to add names for announcement
+                  alerts.
+                </td>
+              </tr>
+            )}
+            {pageRows.map((s) => (
+              <tr key={s.id}>
+                <td className="nowrap">
+                  {s.ticker?.symbol ? (
+                    <Link
+                      className="text-link"
+                      to={`/market/${s.ticker.symbol}`}
+                    >
+                      <strong>{s.ticker.symbol}</strong>
+                    </Link>
+                  ) : (
+                    <strong>{s.tickerId}</strong>
+                  )}
+                  {s.ticker?.exchange && (
+                    <span className="muted tiny"> {s.ticker.exchange}</span>
+                  )}
+                </td>
+                <td>{s.ticker?.name || '—'}</td>
+                <td>{s.ticker?.sector || '—'}</td>
+                <td className="num">
+                  {s.ticker ? formatInr(s.ticker.price) : '—'}
+                </td>
+                <td className="nowrap">
+                  {new Date(s.createdAt).toLocaleDateString('en-IN')}
+                </td>
+                <td className="num">
+                  <button
+                    type="button"
+                    className="linkish"
+                    disabled={busyId === s.id}
+                    onClick={() => void removeStock(s.id)}
+                  >
+                    {busyId === s.id ? 'Removing…' : 'Remove'}
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </>
   );
 }
@@ -904,11 +1118,17 @@ function AnnouncementsPanel({
 }) {
   const [items, setItems] = useState<NseAnnouncement[]>([]);
   const [watched, setWatched] = useState<string[]>([]);
+  const [query, setQuery] = useState('');
+  const [symbol, setSymbol] = useState('all');
+  const [sortKey, setSortKey] = useState<AnnounceSortKey>('announcedAt');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
   async function load() {
-    const data = await api.announcements(80);
+    const data = await api.announcements(200);
     setItems(data.items);
     setWatched(data.watchedSymbols);
   }
@@ -919,19 +1139,73 @@ function AnnouncementsPanel({
     );
   }, []);
 
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    let rows = items;
+    if (symbol !== 'all') {
+      rows = rows.filter((a) => a.symbol.toUpperCase() === symbol.toUpperCase());
+    }
+    if (q) {
+      rows = rows.filter((a) => {
+        return (
+          a.symbol.toLowerCase().includes(q) ||
+          a.subject.toLowerCase().includes(q) ||
+          a.companyName.toLowerCase().includes(q) ||
+          a.body.toLowerCase().includes(q)
+        );
+      });
+    }
+    const dir = sortDir === 'asc' ? 1 : -1;
+    return [...rows].sort((a, b) => {
+      const av =
+        sortKey === 'symbol'
+          ? a.symbol
+          : sortKey === 'subject'
+            ? a.subject
+            : sortKey === 'companyName'
+              ? a.companyName
+              : a.announcedAt || a.createdAt;
+      const bv =
+        sortKey === 'symbol'
+          ? b.symbol
+          : sortKey === 'subject'
+            ? b.subject
+            : sortKey === 'companyName'
+              ? b.companyName
+              : b.announcedAt || b.createdAt;
+      return String(av).localeCompare(String(bv)) * dir;
+    });
+  }, [items, query, symbol, sortKey, sortDir]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize) || 1);
+  const safePage = Math.min(page, totalPages);
+  const pageRows = filtered.slice(
+    (safePage - 1) * pageSize,
+    safePage * pageSize,
+  );
+
+  function toggleSort(key: AnnounceSortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(key);
+      setSortDir(key === 'announcedAt' ? 'desc' : 'asc');
+    }
+  }
+
+  function sortMark(key: AnnounceSortKey) {
+    if (sortKey !== key) return '';
+    return sortDir === 'asc' ? ' ↑' : ' ↓';
+  }
+
   return (
     <>
-      <div className="panel-block">
-        <div className="panel-head-row">
-          <div>
-            <h2 style={{ margin: 0 }}>NSE corporate announcements</h2>
-            <p className="muted tiny">
-              Filings for stocks on your watchlist.
-              {watched.length
-                ? ` Watching ${watched.join(', ')}.`
-                : ' No stocks on your watchlist yet.'}
-            </p>
-          </div>
+      <div className="page-head-row" style={{ alignItems: 'center' }}>
+        <p className="muted tiny" style={{ margin: 0 }}>
+          NSE filings for your watchlist
+          {watched.length ? ` · ${watched.join(', ')}` : ''}.
+        </p>
+        <div className="ticker-actions">
           <button
             type="button"
             className="text-link"
@@ -939,127 +1213,254 @@ function AnnouncementsPanel({
           >
             Manage watchlist
           </button>
+          <button
+            type="button"
+            className="btn secondary"
+            disabled={busy}
+            onClick={() => {
+              setBusy(true);
+              void load()
+                .catch((err) =>
+                  setError(
+                    err instanceof Error ? err.message : 'Refresh failed',
+                  ),
+                )
+                .finally(() => setBusy(false));
+            }}
+          >
+            {busy ? 'Refreshing…' : 'Refresh'}
+          </button>
         </div>
-        {error && <p className="error">{error}</p>}
-        {!watched.length && (
-          <p className="muted">
-            Add stocks in the Watchlist tab to see filings and get Telegram
-            alerts when NSE publishes announcements.
-          </p>
+      </div>
+
+      {error && <p className="error">{error}</p>}
+      {!watched.length && (
+        <p className="muted tiny">
+          Add stocks in Watchlist to see filings and get alerts.
+        </p>
+      )}
+
+      <div className="ticker-filters">
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setPage(1);
+          }}
+          placeholder="Search symbol, subject, or company"
+          aria-label="Search announcements"
+        />
+        <label className="filter-field">
+          <span>Symbol</span>
+          <select
+            value={symbol}
+            onChange={(e) => {
+              setSymbol(e.target.value);
+              setPage(1);
+            }}
+          >
+            <option value="all">All</option>
+            {watched.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="filter-field">
+          <span>Rows</span>
+          <select
+            value={pageSize}
+            onChange={(e) => {
+              setPageSize(Number(e.target.value));
+              setPage(1);
+            }}
+          >
+            {PAGE_SIZES.map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+        </label>
+        {(query || symbol !== 'all') && (
+          <button
+            type="button"
+            className="btn ghost"
+            onClick={() => {
+              setQuery('');
+              setSymbol('all');
+              setPage(1);
+            }}
+          >
+            Clear
+          </button>
         )}
       </div>
 
-      <ul className="holding-list">
-        {items.length === 0 && watched.length > 0 && (
-          <li className="muted">
-            No stored announcements yet. They appear after the NSE announcements
-            cron runs.
-          </li>
-        )}
-        {items.map((a) => (
-          <li key={a.id} className="holding-card">
-            <div className="holding-main">
-              <div>
-                <p className="eyebrow">{a.symbol}</p>
-                <h3>{a.subject || 'Announcement'}</h3>
-                <p className="muted tiny">{a.companyName}</p>
-              </div>
-              <span className="muted tiny nowrap">
-                {a.announcedAt
-                  ? new Date(a.announcedAt).toLocaleString('en-IN')
-                  : '—'}
-              </span>
-            </div>
-            {a.body && <p className="tiny">{a.body.slice(0, 280)}</p>}
-            <div className="holding-meta">
-              {a.attachmentUrl && (
-                <a
-                  className="text-link"
-                  href={a.attachmentUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Attachment
-                </a>
-              )}
-            </div>
-          </li>
-        ))}
-      </ul>
+      <TableToolbar
+        label={`${rangeLabel(safePage, pageSize, filtered.length)} filings · ${totalPages} page${totalPages === 1 ? '' : 's'}`}
+        safePage={safePage}
+        totalPages={totalPages}
+        onPage={setPage}
+      />
 
-      <div className="quick-links">
-        <button
-          type="button"
-          className="btn secondary"
-          disabled={busy}
-          onClick={() => {
-            setBusy(true);
-            void load()
-              .catch((err) =>
-                setError(err instanceof Error ? err.message : 'Refresh failed'),
-              )
-              .finally(() => setBusy(false));
-          }}
-        >
-          {busy ? 'Refreshing…' : 'Refresh list'}
-        </button>
+      <div className="table-wrap">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>
+                <button
+                  type="button"
+                  className="th-btn"
+                  onClick={() => toggleSort('symbol')}
+                >
+                  Symbol{sortMark('symbol')}
+                </button>
+              </th>
+              <th>
+                <button
+                  type="button"
+                  className="th-btn"
+                  onClick={() => toggleSort('subject')}
+                >
+                  Subject{sortMark('subject')}
+                </button>
+              </th>
+              <th>
+                <button
+                  type="button"
+                  className="th-btn"
+                  onClick={() => toggleSort('companyName')}
+                >
+                  Company{sortMark('companyName')}
+                </button>
+              </th>
+              <th>
+                <button
+                  type="button"
+                  className="th-btn"
+                  onClick={() => toggleSort('announcedAt')}
+                >
+                  Announced{sortMark('announcedAt')}
+                </button>
+              </th>
+              <th>Attachment</th>
+            </tr>
+          </thead>
+          <tbody>
+            {pageRows.length === 0 && (
+              <tr>
+                <td colSpan={5} className="muted">
+                  {watched.length
+                    ? 'No announcements match the current filters.'
+                    : 'No watchlist stocks yet.'}
+                </td>
+              </tr>
+            )}
+            {pageRows.map((a) => (
+              <tr key={a.id}>
+                <td className="nowrap">
+                  <Link className="text-link" to={`/market/${a.symbol}`}>
+                    <strong>{a.symbol}</strong>
+                  </Link>
+                </td>
+                <td>
+                  <div>{a.subject || 'Announcement'}</div>
+                  {a.body && (
+                    <div className="muted tiny">{a.body.slice(0, 140)}</div>
+                  )}
+                </td>
+                <td>{a.companyName || '—'}</td>
+                <td className="nowrap">
+                  {a.announcedAt
+                    ? new Date(a.announcedAt).toLocaleString('en-IN')
+                    : '—'}
+                </td>
+                <td>
+                  {a.attachmentUrl ? (
+                    <a
+                      className="text-link"
+                      href={a.attachmentUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Open
+                    </a>
+                  ) : (
+                    '—'
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </>
   );
 }
 
-function Pager({
+function rangeLabel(page: number, pageSize: number, total: number) {
+  if (!total) return '0';
+  const from = (page - 1) * pageSize + 1;
+  const to = Math.min(page * pageSize, total);
+  return `${from}–${to} of ${total.toLocaleString('en-IN')}`;
+}
+
+function TableToolbar({
+  label,
   safePage,
   totalPages,
-  onPrev,
-  onNext,
+  onPage,
 }: {
+  label: string;
   safePage: number;
   totalPages: number;
-  onPrev: () => void;
-  onNext: () => void;
+  onPage: (page: number) => void;
 }) {
   return (
-    <div className="table-pager">
-      <button
-        type="button"
-        className="icon-btn"
-        disabled={safePage <= 1}
-        onClick={onPrev}
-        aria-label="Previous page"
-        title="Previous"
-      >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-          <path
-            d="M15 6l-6 6 6 6"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
+    <div className="table-toolbar">
+      <p className="muted tiny">{label}</p>
+      <div className="table-pager">
+        <button
+          type="button"
+          className="icon-btn"
+          disabled={safePage <= 1}
+          onClick={() => onPage(Math.max(1, safePage - 1))}
+          aria-label="Previous page"
+          title="Previous"
+        >
+          ‹
+        </button>
+        <label className="page-jump">
+          <span className="muted tiny">Page</span>
+          <input
+            type="number"
+            min={1}
+            max={totalPages}
+            value={safePage}
+            disabled={totalPages <= 1}
+            onChange={(e) => {
+              const raw = Number(e.target.value);
+              if (!Number.isFinite(raw)) return;
+              onPage(Math.min(totalPages, Math.max(1, Math.floor(raw))));
+            }}
+            aria-label="Page number"
           />
-        </svg>
-      </button>
-      <span className="muted tiny">
-        Page {safePage} / {totalPages}
-      </span>
-      <button
-        type="button"
-        className="icon-btn"
-        disabled={safePage >= totalPages}
-        onClick={onNext}
-        aria-label="Next page"
-        title="Next"
-      >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-          <path
-            d="M9 6l6 6-6 6"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      </button>
+          <span className="muted tiny">of {totalPages}</span>
+        </label>
+        <button
+          type="button"
+          className="icon-btn"
+          disabled={safePage >= totalPages}
+          onClick={() => onPage(Math.min(totalPages, safePage + 1))}
+          aria-label="Next page"
+          title="Next"
+        >
+          ›
+        </button>
+      </div>
     </div>
   );
 }

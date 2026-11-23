@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { api } from '../api';
 import type {
   CronJobKey,
@@ -6,9 +6,26 @@ import type {
   CronSettings,
   FeatureFlag,
   Plan,
+  PlanId,
+  Role,
   Ticker,
   User,
 } from '../types';
+
+const TICKER_PAGE_SIZE = 25;
+const TICKER_SEARCH_DEBOUNCE_MS = 250;
+const USER_PAGE_SIZE = 25;
+const USER_SEARCH_DEBOUNCE_MS = 250;
+
+type AdminUserRow = User & { holdingsCount: number };
+type UserSortKey =
+  | 'name'
+  | 'email'
+  | 'role'
+  | 'planId'
+  | 'provider'
+  | 'holdingsCount'
+  | 'createdAt';
 
 type Tab =
   | 'overview'
@@ -74,8 +91,30 @@ export function AdminPage() {
     alerts: number;
     lastCron: CronRun | null;
   } | null>(null);
-  const [users, setUsers] = useState<(User & { holdingsCount: number })[]>([]);
+  const [users, setUsers] = useState<AdminUserRow[]>([]);
+  const [userQuery, setUserQuery] = useState('');
+  const [userSearch, setUserSearch] = useState('');
+  const [userRoleFilter, setUserRoleFilter] = useState<'all' | Role>('all');
+  const [userPlanFilter, setUserPlanFilter] = useState<'all' | PlanId>('all');
+  const [userProviderFilter, setUserProviderFilter] = useState<'all' | string>(
+    'all',
+  );
+  const [userSortKey, setUserSortKey] = useState<UserSortKey>('createdAt');
+  const [userSortDir, setUserSortDir] = useState<'asc' | 'desc'>('desc');
+  const [userPage, setUserPage] = useState(1);
   const [tickers, setTickers] = useState<Ticker[]>([]);
+  const [tickerPage, setTickerPage] = useState(1);
+  const [tickerTotal, setTickerTotal] = useState(0);
+  const [tickerQuery, setTickerQuery] = useState('');
+  const [tickerSearch, setTickerSearch] = useState('');
+  const [screenerFilter, setScreenerFilter] = useState<'all' | 'yes' | 'no'>(
+    'all',
+  );
+  const [announcementsFilter, setAnnouncementsFilter] = useState<
+    'all' | 'yes' | 'no'
+  >('all');
+  const [tickerBusy, setTickerBusy] = useState(false);
+  const [inclusionBusyId, setInclusionBusyId] = useState<string | null>(null);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [features, setFeatures] = useState<FeatureFlag[]>([]);
   const [cronRuns, setCronRuns] = useState<CronRun[]>([]);
@@ -116,14 +155,160 @@ export function AdminPage() {
     minBars: number;
   } | null>(null);
 
+  const tickerTotalPages = useMemo(
+    () => Math.max(1, Math.ceil(tickerTotal / TICKER_PAGE_SIZE) || 1),
+    [tickerTotal],
+  );
+
+  const tickerRangeLabel = useMemo(() => {
+    if (!tickerTotal) return '0 tickers';
+    const from = (tickerPage - 1) * TICKER_PAGE_SIZE + 1;
+    const to = Math.min(tickerPage * TICKER_PAGE_SIZE, tickerTotal);
+    return `${from}–${to} of ${tickerTotal.toLocaleString('en-IN')}`;
+  }, [tickerPage, tickerTotal]);
+
+  const userProviders = useMemo(() => {
+    const set = new Set<string>();
+    for (const u of users) set.add(u.provider || 'dev');
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [users]);
+
+  const filteredUsers = useMemo(() => {
+    const q = userSearch.toLowerCase();
+    let rows = users.filter((u) => {
+      if (userRoleFilter !== 'all' && u.role !== userRoleFilter) return false;
+      if (userPlanFilter !== 'all' && u.planId !== userPlanFilter) return false;
+      if (
+        userProviderFilter !== 'all' &&
+        (u.provider || 'dev') !== userProviderFilter
+      ) {
+        return false;
+      }
+      if (!q) return true;
+      return (
+        u.name.toLowerCase().includes(q) ||
+        u.email.toLowerCase().includes(q) ||
+        (u.phone || '').toLowerCase().includes(q)
+      );
+    });
+
+    const dir = userSortDir === 'asc' ? 1 : -1;
+    rows = [...rows].sort((a, b) => {
+      const av = a[userSortKey];
+      const bv = b[userSortKey];
+      if (typeof av === 'number' && typeof bv === 'number') {
+        return (av - bv) * dir;
+      }
+      return String(av ?? '').localeCompare(String(bv ?? ''), undefined, {
+        sensitivity: 'base',
+      }) * dir;
+    });
+    return rows;
+  }, [
+    users,
+    userSearch,
+    userRoleFilter,
+    userPlanFilter,
+    userProviderFilter,
+    userSortKey,
+    userSortDir,
+  ]);
+
+  const userTotalPages = useMemo(
+    () => Math.max(1, Math.ceil(filteredUsers.length / USER_PAGE_SIZE) || 1),
+    [filteredUsers.length],
+  );
+
+  const safeUserPage = Math.min(userPage, userTotalPages);
+
+  const pagedUsers = useMemo(() => {
+    const start = (safeUserPage - 1) * USER_PAGE_SIZE;
+    return filteredUsers.slice(start, start + USER_PAGE_SIZE);
+  }, [filteredUsers, safeUserPage]);
+
+  const userRangeLabel = useMemo(() => {
+    if (!filteredUsers.length) return '0 users';
+    const from = (safeUserPage - 1) * USER_PAGE_SIZE + 1;
+    const to = Math.min(safeUserPage * USER_PAGE_SIZE, filteredUsers.length);
+    return `${from}–${to} of ${filteredUsers.length.toLocaleString('en-IN')}`;
+  }, [filteredUsers.length, safeUserPage]);
+
+  function toggleUserSort(key: UserSortKey) {
+    if (userSortKey === key) {
+      setUserSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+      return;
+    }
+    setUserSortKey(key);
+    setUserSortDir(key === 'createdAt' || key === 'holdingsCount' ? 'desc' : 'asc');
+  }
+
+  function userSortMarker(key: UserSortKey) {
+    if (userSortKey !== key) return '';
+    return userSortDir === 'asc' ? ' ↑' : ' ↓';
+  }
+
+  async function loadTickersPage(
+    page = tickerPage,
+    q = tickerSearch,
+    screener = screenerFilter,
+    announcements = announcementsFilter,
+  ) {
+    setTickerBusy(true);
+    try {
+      const result = await api.adminTickers({
+        page,
+        pageSize: TICKER_PAGE_SIZE,
+        q: q || undefined,
+        screener,
+        announcements,
+      });
+      setTickers(result.items);
+      setTickerTotal(result.total);
+      const maxPage = Math.max(1, Math.ceil(result.total / TICKER_PAGE_SIZE) || 1);
+      setTickerPage(Math.min(result.page, maxPage));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load tickers');
+    } finally {
+      setTickerBusy(false);
+    }
+  }
+
+  // Live search: debounce keystrokes into the query used by the fetch effect.
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      const next = tickerQuery.trim();
+      if (next === tickerSearch) return;
+      setTickerPage(1);
+      setTickerSearch(next);
+    }, TICKER_SEARCH_DEBOUNCE_MS);
+    return () => window.clearTimeout(handle);
+  }, [tickerQuery, tickerSearch]);
+
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      const next = userQuery.trim();
+      if (next === userSearch) return;
+      setUserPage(1);
+      setUserSearch(next);
+    }, USER_SEARCH_DEBOUNCE_MS);
+    return () => window.clearTimeout(handle);
+  }, [userQuery, userSearch]);
+
+  useEffect(() => {
+    setUserPage(1);
+  }, [userRoleFilter, userPlanFilter, userProviderFilter]);
+
+  useEffect(() => {
+    if (userPage > userTotalPages) setUserPage(userTotalPages);
+  }, [userPage, userTotalPages]);
+
   useEffect(() => {
     void (async () => {
       try {
-        const [ov, u, t, p, f, c, cronCfg, settings, templates, coverage] =
+        const [ov, u, p, f, c, cronCfg, settings, templates, coverage] =
           await Promise.all([
             api.adminOverview(),
             api.adminUsers(),
-            api.adminTickers(),
             api.adminPlans(),
             api.adminFeatures(),
             api.cronRuns(),
@@ -134,7 +319,6 @@ export function AdminPage() {
           ]);
         setOverview(ov);
         setUsers(u);
-        setTickers(t);
         setHistoryCoverage(coverage);
         setPlans(p);
         setFeatures(f);
@@ -184,6 +368,17 @@ export function AdminPage() {
     })();
   }, []);
 
+  useEffect(() => {
+    if (tab !== 'tickers') return;
+    void loadTickersPage(
+      tickerPage,
+      tickerSearch,
+      screenerFilter,
+      announcementsFilter,
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload when tab/page/search/filters change
+  }, [tab, tickerPage, tickerSearch, screenerFilter, announcementsFilter]);
+
   async function toggleFeature(feature: FeatureFlag) {
     const next = await api.updateFeature(feature.key, {
       enabled: !feature.enabled,
@@ -197,7 +392,7 @@ export function AdminPage() {
     setError('');
     try {
       const result = await api.syncAllTickers();
-      setTickers(await api.adminTickers());
+      await loadTickersPage(1, tickerSearch);
       setOverview(await api.adminOverview());
       setSyncNote(
         `Synced ${result.universeSize} symbols · created ${result.created} · updated ${result.updated}. ${result.source}. ${result.priceRefresh.note || 'Price refresh started in background.'}`,
@@ -215,7 +410,7 @@ export function AdminPage() {
     setError('');
     try {
       const result = await api.refreshTickerPrices();
-      setTickers(await api.adminTickers());
+      await loadTickersPage(tickerPage, tickerSearch);
       setHistoryCoverage(await api.adminHistoryCoverage());
       setSyncNote(
         `LTP refresh: ${result.updated}/${result.attempted} updated` +
@@ -230,6 +425,27 @@ export function AdminPage() {
     }
   }
 
+  async function onToggleTickerInclusion(
+    ticker: Ticker,
+    field: 'includeInScreener' | 'includeInAnnouncements',
+    value: boolean,
+  ) {
+    setInclusionBusyId(ticker.id);
+    setError('');
+    try {
+      const next = await api.updateTickerInclusion(ticker.id, {
+        [field]: value,
+      });
+      setTickers((rows) => rows.map((r) => (r.id === next.id ? next : r)));
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'Failed to update ticker options',
+      );
+    } finally {
+      setInclusionBusyId(null);
+    }
+  }
+
   async function onBackfillHistory() {
     setHistoryBusy(true);
     setSyncNote('');
@@ -237,7 +453,7 @@ export function AdminPage() {
     try {
       const result = await api.backfillHistory(25);
       setHistoryCoverage(result.coverage);
-      setTickers(await api.adminTickers());
+      await loadTickersPage(tickerPage, tickerSearch);
       setSyncNote(
         result.skipped
           ? `History backfill skipped (${result.reason})`
@@ -512,21 +728,14 @@ export function AdminPage() {
   ];
 
   return (
-    <div className="page-stack">
-      <header className="page-head">
-        <p className="eyebrow">Admin</p>
-        <h1>Console</h1>
-        <p className="muted">
-          Users, CRN tickers, plans, features, Google Sign-in, SMTP email,
-          templates, Telegram, and job runs.
-        </p>
-      </header>
-
-      <div className="chip-row wrap">
+    <div className="page-stack admin-console">
+      <div className="chip-row wrap admin-tabs" role="tablist" aria-label="Admin sections">
         {tabs.map((t) => (
           <button
             key={t.id}
             type="button"
+            role="tab"
+            aria-selected={tab === t.id}
             className={`chip${tab === t.id ? ' active' : ''}`}
             onClick={() => setTab(t.id)}
           >
@@ -569,30 +778,235 @@ export function AdminPage() {
       )}
 
       {tab === 'users' && (
-        <ul className="holding-list">
-          {users.map((u) => (
-            <li key={u.id} className="holding-card">
-              <div className="holding-main">
-                <div>
-                  <h3>{u.name}</h3>
-                  <p className="muted">{u.email}</p>
-                </div>
-                <div className="holding-values">
-                  <strong>{u.planId}</strong>
-                  <span className="muted tiny">
-                    {u.role} · {u.provider || 'dev'}
-                  </span>
-                </div>
-              </div>
-              <p className="tiny">{u.holdingsCount} holdings</p>
-            </li>
-          ))}
-        </ul>
+        <>
+          <div className="ticker-filters">
+            <input
+              type="search"
+              placeholder="Search name, email, or phone"
+              value={userQuery}
+              onChange={(e) => setUserQuery(e.target.value)}
+              aria-label="Search users"
+            />
+            <label className="filter-field">
+              <span>Role</span>
+              <select
+                value={userRoleFilter}
+                onChange={(e) =>
+                  setUserRoleFilter(e.target.value as 'all' | Role)
+                }
+              >
+                <option value="all">All</option>
+                <option value="user">User</option>
+                <option value="admin">Admin</option>
+              </select>
+            </label>
+            <label className="filter-field">
+              <span>Plan</span>
+              <select
+                value={userPlanFilter}
+                onChange={(e) =>
+                  setUserPlanFilter(e.target.value as 'all' | PlanId)
+                }
+              >
+                <option value="all">All</option>
+                <option value="free">Free</option>
+                <option value="pro">Pro</option>
+                <option value="premium">Premium</option>
+                <option value="family">Family</option>
+              </select>
+            </label>
+            <label className="filter-field">
+              <span>Provider</span>
+              <select
+                value={userProviderFilter}
+                onChange={(e) => setUserProviderFilter(e.target.value)}
+              >
+                <option value="all">All</option>
+                {userProviders.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {(userQuery ||
+              userSearch ||
+              userRoleFilter !== 'all' ||
+              userPlanFilter !== 'all' ||
+              userProviderFilter !== 'all') && (
+              <button
+                type="button"
+                className="btn ghost"
+                onClick={() => {
+                  setUserQuery('');
+                  setUserSearch('');
+                  setUserRoleFilter('all');
+                  setUserPlanFilter('all');
+                  setUserProviderFilter('all');
+                  setUserPage(1);
+                }}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+
+          <div className="table-toolbar">
+            <p className="muted tiny">
+              {`${userRangeLabel} · ${userTotalPages} page${userTotalPages === 1 ? '' : 's'}`}
+            </p>
+            <div className="table-pager">
+              <button
+                type="button"
+                className="icon-btn"
+                disabled={safeUserPage <= 1}
+                onClick={() => setUserPage((p) => Math.max(1, p - 1))}
+                aria-label="Previous page"
+                title="Previous"
+              >
+                ‹
+              </button>
+              <label className="page-jump">
+                <span className="muted tiny">Page</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={userTotalPages}
+                  value={safeUserPage}
+                  disabled={userTotalPages <= 1}
+                  onChange={(e) => {
+                    const raw = Number(e.target.value);
+                    if (!Number.isFinite(raw)) return;
+                    setUserPage(
+                      Math.min(
+                        userTotalPages,
+                        Math.max(1, Math.floor(raw)),
+                      ),
+                    );
+                  }}
+                  aria-label="Page number"
+                />
+                <span className="muted tiny">of {userTotalPages}</span>
+              </label>
+              <button
+                type="button"
+                className="icon-btn"
+                disabled={safeUserPage >= userTotalPages}
+                onClick={() =>
+                  setUserPage((p) => Math.min(userTotalPages, p + 1))
+                }
+                aria-label="Next page"
+                title="Next"
+              >
+                ›
+              </button>
+            </div>
+          </div>
+
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>
+                    <button
+                      type="button"
+                      className="th-btn"
+                      onClick={() => toggleUserSort('name')}
+                    >
+                      Name{userSortMarker('name')}
+                    </button>
+                  </th>
+                  <th>
+                    <button
+                      type="button"
+                      className="th-btn"
+                      onClick={() => toggleUserSort('email')}
+                    >
+                      Email{userSortMarker('email')}
+                    </button>
+                  </th>
+                  <th>
+                    <button
+                      type="button"
+                      className="th-btn"
+                      onClick={() => toggleUserSort('role')}
+                    >
+                      Role{userSortMarker('role')}
+                    </button>
+                  </th>
+                  <th>
+                    <button
+                      type="button"
+                      className="th-btn"
+                      onClick={() => toggleUserSort('planId')}
+                    >
+                      Plan{userSortMarker('planId')}
+                    </button>
+                  </th>
+                  <th>
+                    <button
+                      type="button"
+                      className="th-btn"
+                      onClick={() => toggleUserSort('provider')}
+                    >
+                      Provider{userSortMarker('provider')}
+                    </button>
+                  </th>
+                  <th className="num">
+                    <button
+                      type="button"
+                      className="th-btn"
+                      onClick={() => toggleUserSort('holdingsCount')}
+                    >
+                      Holdings{userSortMarker('holdingsCount')}
+                    </button>
+                  </th>
+                  <th>
+                    <button
+                      type="button"
+                      className="th-btn"
+                      onClick={() => toggleUserSort('createdAt')}
+                    >
+                      Joined{userSortMarker('createdAt')}
+                    </button>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {pagedUsers.map((u) => (
+                  <tr key={u.id}>
+                    <td>
+                      <strong>{u.name}</strong>
+                      {u.phone && (
+                        <div className="muted tiny">{u.phone}</div>
+                      )}
+                    </td>
+                    <td>{u.email}</td>
+                    <td className="nowrap">{u.role}</td>
+                    <td className="nowrap">{u.planId}</td>
+                    <td className="nowrap">{u.provider || 'dev'}</td>
+                    <td className="num">{u.holdingsCount}</td>
+                    <td className="nowrap">
+                      {new Date(u.createdAt).toLocaleDateString('en-IN')}
+                    </td>
+                  </tr>
+                ))}
+                {pagedUsers.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="muted">
+                      No users match the current search or filters.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
 
       {tab === 'tickers' && (
         <>
-          <div className="quick-links">
+          <div className="ticker-actions">
             <button
               type="button"
               className="btn primary"
@@ -620,43 +1034,200 @@ export function AdminPage() {
                 : 'Backfill 1Y history (batch)'}
             </button>
           </div>
-          <p className="muted tiny">
-            Sync loads the full NSE equity master list (~2,000–2,700 symbols from
-            EQUITY_L.csv), then starts Yahoo LTP refresh in the background. 1Y
-            daily OHLCV is loaded in batches (admin button or cron every 20m) —
-            not all tickers at once. Opening a stock page also pulls 1Y on demand.
-          </p>
           {historyCoverage && (
             <p className="muted tiny">
               History coverage: {historyCoverage.complete}/{historyCoverage.total}{' '}
-              tickers with ≥{historyCoverage.minBars} daily bars
+              tickers with ≥{historyCoverage.minBars} daily bars · only checked
+              tickers run in screener / announcement jobs
             </p>
           )}
           {syncNote && <p className="positive">{syncNote}</p>}
-          <ul className="holding-list">
-            {tickers.map((t) => (
-              <li key={t.id} className="holding-card">
-                <div className="holding-main">
-                  <div>
-                    <p className="eyebrow">{t.crn}</p>
-                    <h3>
-                      {t.symbol} · {t.exchange}
-                    </h3>
-                    <p className="muted">{t.name}</p>
-                  </div>
-                  <div className="holding-values">
-                    <strong>₹{t.price.toLocaleString('en-IN')}</strong>
-                    <span className="muted tiny">{t.sector}</span>
-                  </div>
-                </div>
-                <p className="tiny">
-                  SMA50 {t.sma50} · SMA200 {t.sma200} · 52W {t.low52w}–{t.high52w}
-                  {' · '}
-                  {new Date(t.updatedAt).toLocaleString('en-IN')}
-                </p>
-              </li>
-            ))}
-          </ul>
+
+          <div className="ticker-filters">
+            <input
+              type="search"
+              placeholder="Search symbol, name, or CRN"
+              value={tickerQuery}
+              onChange={(e) => setTickerQuery(e.target.value)}
+              aria-label="Search tickers"
+            />
+            <label className="filter-field">
+              <span>Screener</span>
+              <select
+                value={screenerFilter}
+                onChange={(e) => {
+                  setTickerPage(1);
+                  setScreenerFilter(e.target.value as 'all' | 'yes' | 'no');
+                }}
+              >
+                <option value="all">All</option>
+                <option value="yes">Included</option>
+                <option value="no">Not included</option>
+              </select>
+            </label>
+            <label className="filter-field">
+              <span>Announcements</span>
+              <select
+                value={announcementsFilter}
+                onChange={(e) => {
+                  setTickerPage(1);
+                  setAnnouncementsFilter(
+                    e.target.value as 'all' | 'yes' | 'no',
+                  );
+                }}
+              >
+                <option value="all">All</option>
+                <option value="yes">Included</option>
+                <option value="no">Not included</option>
+              </select>
+            </label>
+            {(tickerQuery ||
+              tickerSearch ||
+              screenerFilter !== 'all' ||
+              announcementsFilter !== 'all') && (
+              <button
+                type="button"
+                className="btn ghost"
+                onClick={() => {
+                  setTickerQuery('');
+                  setTickerSearch('');
+                  setScreenerFilter('all');
+                  setAnnouncementsFilter('all');
+                  setTickerPage(1);
+                }}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+
+          <div className="table-toolbar">
+            <p className="muted tiny">
+              {tickerBusy
+                ? 'Loading…'
+                : `${tickerRangeLabel} · ${tickerTotalPages} page${tickerTotalPages === 1 ? '' : 's'}`}
+            </p>
+            <div className="table-pager">
+              <button
+                type="button"
+                className="icon-btn"
+                disabled={tickerBusy || tickerPage <= 1}
+                onClick={() => setTickerPage((p) => Math.max(1, p - 1))}
+                aria-label="Previous page"
+                title="Previous"
+              >
+                ‹
+              </button>
+              <label className="page-jump">
+                <span className="muted tiny">Page</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={tickerTotalPages}
+                  value={tickerPage}
+                  disabled={tickerBusy || tickerTotalPages <= 1}
+                  onChange={(e) => {
+                    const raw = Number(e.target.value);
+                    if (!Number.isFinite(raw)) return;
+                    const next = Math.min(
+                      tickerTotalPages,
+                      Math.max(1, Math.floor(raw)),
+                    );
+                    setTickerPage(next);
+                  }}
+                  aria-label="Page number"
+                />
+                <span className="muted tiny">of {tickerTotalPages}</span>
+              </label>
+              <button
+                type="button"
+                className="icon-btn"
+                disabled={tickerBusy || tickerPage >= tickerTotalPages}
+                onClick={() =>
+                  setTickerPage((p) => Math.min(tickerTotalPages, p + 1))
+                }
+                aria-label="Next page"
+                title="Next"
+              >
+                ›
+              </button>
+            </div>
+          </div>
+
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Symbol</th>
+                  <th>Name</th>
+                  <th>Sector</th>
+                  <th className="num">Price</th>
+                  <th>Include in screener</th>
+                  <th>Include in announcements</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tickers.map((t) => {
+                  const busy = inclusionBusyId === t.id;
+                  return (
+                    <tr key={t.id}>
+                      <td className="nowrap">
+                        <strong>{t.symbol}</strong>
+                        <span className="muted tiny"> {t.exchange}</span>
+                        <div className="muted tiny">{t.crn}</div>
+                      </td>
+                      <td>{t.name}</td>
+                      <td>{t.sector || '—'}</td>
+                      <td className="num">
+                        ₹{t.price.toLocaleString('en-IN')}
+                      </td>
+                      <td>
+                        <label className="check-inline">
+                          <input
+                            type="checkbox"
+                            checked={t.includeInScreener}
+                            disabled={busy}
+                            onChange={(e) =>
+                              void onToggleTickerInclusion(
+                                t,
+                                'includeInScreener',
+                                e.target.checked,
+                              )
+                            }
+                          />
+                          Screener
+                        </label>
+                      </td>
+                      <td>
+                        <label className="check-inline">
+                          <input
+                            type="checkbox"
+                            checked={t.includeInAnnouncements}
+                            disabled={busy}
+                            onChange={(e) =>
+                              void onToggleTickerInclusion(
+                                t,
+                                'includeInAnnouncements',
+                                e.target.checked,
+                              )
+                            }
+                          />
+                          Announcements
+                        </label>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {!tickerBusy && tickers.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="muted">
+                      No tickers found. Sync the NSE list or clear the search.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </>
       )}
 
@@ -692,10 +1263,13 @@ export function AdminPage() {
                 </div>
                 <button
                   type="button"
-                  className={`btn ${f.enabled ? 'primary' : 'secondary'}`}
+                  role="switch"
+                  aria-checked={f.enabled}
+                  aria-label={`${f.name} ${f.enabled ? 'enabled' : 'disabled'}`}
+                  className={`switch-toggle${f.enabled ? ' on' : ''}`}
                   onClick={() => void toggleFeature(f)}
                 >
-                  {f.enabled ? 'Enabled' : 'Disabled'}
+                  <span className="switch-thumb" aria-hidden="true" />
                 </button>
               </div>
             </li>
@@ -1222,19 +1796,20 @@ export function AdminPage() {
                   </div>
                   <button
                     type="button"
-                    className={`btn ${cronSettings.masterEnabled ? 'primary' : 'secondary'}`}
+                    role="switch"
+                    aria-checked={cronSettings.masterEnabled}
+                    aria-label="Master cron switch"
+                    className={`switch-toggle${cronSettings.masterEnabled ? ' on' : ''}`}
                     disabled={cronBusy}
                     onClick={() => void toggleCronMaster()}
                   >
-                    {cronSettings.masterEnabled ? 'On' : 'Off'}
+                    <span className="switch-thumb" aria-hidden="true" />
                   </button>
                 </div>
               </div>
 
               <ul className="holding-list">
                 {cronSettings.jobs.map((job) => {
-                  const effective =
-                    cronSettings.masterEnabled && job.enabled;
                   const dirty =
                     (cronExprs[job.key] || '').trim() !== job.expression;
                   return (
@@ -1252,11 +1827,14 @@ export function AdminPage() {
                         </div>
                         <button
                           type="button"
-                          className={`btn ${effective ? 'primary' : 'secondary'}`}
+                          role="switch"
+                          aria-checked={job.enabled}
+                          aria-label={`${job.name} ${job.enabled ? 'on' : 'off'}`}
+                          className={`switch-toggle${job.enabled ? ' on' : ''}`}
                           disabled={cronBusy}
                           onClick={() => void toggleCronJob(job.key)}
                         >
-                          {job.enabled ? 'On' : 'Off'}
+                          <span className="switch-thumb" aria-hidden="true" />
                         </button>
                       </div>
                       <label style={{ display: 'block', marginTop: 10 }}>
@@ -1298,31 +1876,52 @@ export function AdminPage() {
 
           <section className="panel-block">
             <h2>Recent runs</h2>
-            <ul className="holding-list">
-              {cronRuns.length === 0 && (
-                <li className="muted">No cron runs logged yet</li>
-              )}
-              {cronRuns.map((run) => (
-                <li key={run.id} className="holding-card">
-                  <div className="holding-main">
-                    <div>
-                      <h3>{run.job}</h3>
-                      <p className="muted tiny">
+            <p className="muted tiny">Last 10 cron runs</p>
+            <div className="table-wrap">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Job</th>
+                    <th>Started</th>
+                    <th>Status</th>
+                    <th>Detail</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cronRuns.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="muted">
+                        No cron runs logged yet
+                      </td>
+                    </tr>
+                  )}
+                  {cronRuns.slice(0, 10).map((run) => (
+                    <tr key={run.id}>
+                      <td className="nowrap">
+                        <strong>{run.job}</strong>
+                      </td>
+                      <td className="nowrap">
                         {new Date(run.startedAt).toLocaleString('en-IN')}
-                      </p>
-                    </div>
-                    <strong
-                      className={
-                        run.status === 'error' ? 'negative' : 'positive'
-                      }
-                    >
-                      {run.status}
-                    </strong>
-                  </div>
-                  {run.detail && <p className="tiny">{run.detail}</p>}
-                </li>
-              ))}
-            </ul>
+                      </td>
+                      <td>
+                        <strong
+                          className={
+                            run.status === 'error'
+                              ? 'negative'
+                              : run.status === 'ok'
+                                ? 'positive'
+                                : undefined
+                          }
+                        >
+                          {run.status}
+                        </strong>
+                      </td>
+                      <td className="reason-cell">{run.detail || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </section>
         </div>
       )}
