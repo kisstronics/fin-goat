@@ -13,6 +13,7 @@ import type {
   Plan,
   PriceBar,
   ProjectionSeries,
+  ProjectionSettings,
   RecurringItem,
   RecurringSummary,
   ScreenerDef,
@@ -102,10 +103,8 @@ export const api = {
     request<NetWorthProjection>(
       `/api/portfolio/projection?month=${month}&year=${year}`,
     ),
-  projectionSeries: (years = 10) =>
-    request<ProjectionSeries>(
-      `/api/portfolio/projection-series?years=${years}`,
-    ),
+  projectionSeries: () =>
+    request<ProjectionSeries>('/api/portfolio/projection-series'),
   holdings: () => request<Holding[]>('/api/portfolio'),
   createHolding: (
     body: Partial<Holding> & {
@@ -228,17 +227,21 @@ export const api = {
       plan?: Plan;
       plans: Plan[];
       telegram: { enabled: boolean; botUsername: string; linked: boolean };
+      projection: ProjectionSettings;
     }>('/api/settings'),
   updateSettings: (
     body: Partial<
       Pick<User, 'name' | 'phone' | 'notifyEmail' | 'notifyTelegram' | 'planId'>
-    >,
+    > & {
+      projection?: Partial<ProjectionSettings>;
+    },
   ) =>
     request<{
       user: User;
       plan?: Plan;
       plans: Plan[];
       telegram: { enabled: boolean; botUsername: string; linked: boolean };
+      projection: ProjectionSettings;
     }>('/api/settings', {
       method: 'PATCH',
       body: JSON.stringify(body),
@@ -312,6 +315,7 @@ export const api = {
       universeSize: number;
       created: number;
       updated: number;
+      totalInDb?: number;
       priceRefresh: {
         attempted: number;
         updated: number;

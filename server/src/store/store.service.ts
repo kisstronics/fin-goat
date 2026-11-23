@@ -34,6 +34,7 @@ import type {
   Plan,
   PlanId,
   PriceBar,
+  ProjectionSettings,
   RecurringItem,
   ScreenerAlertSent,
   ScreenerKey,
@@ -45,6 +46,7 @@ import type {
   User,
   WatchlistItem,
 } from './types';
+import { DEFAULT_PROJECTION_SETTINGS } from './types';
 
 const CRON_JOB_META: Record<
   CronJobKey,
@@ -379,6 +381,8 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
       ALTER TABLE users ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT 'dev';
       ALTER TABLE users ADD COLUMN IF NOT EXISTS picture TEXT;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id TEXT;
+      ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS projection_settings JSONB NOT NULL DEFAULT '{}'::jsonb;
       ALTER TABLE tickers
         ADD COLUMN IF NOT EXISTS include_in_screener BOOLEAN NOT NULL DEFAULT FALSE;
       ALTER TABLE tickers
@@ -561,6 +565,45 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
     this.logger.log('Seed complete');
   }
 
+  private normalizeProjectionSettings(
+    raw: unknown,
+  ): ProjectionSettings {
+    const src =
+      raw && typeof raw === 'object' && !Array.isArray(raw)
+        ? (raw as Record<string, unknown>)
+        : {};
+    const num = (v: unknown, fallback: number) => {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : fallback;
+    };
+    const returnsPct = Math.max(
+      -50,
+      Math.min(100, num(src.returnsPct, DEFAULT_PROJECTION_SETTINGS.returnsPct)),
+    );
+    const incomeGrowthPct = Math.max(
+      -50,
+      Math.min(
+        100,
+        num(src.incomeGrowthPct, DEFAULT_PROJECTION_SETTINGS.incomeGrowthPct),
+      ),
+    );
+    const expenseGrowthPct = Math.max(
+      -50,
+      Math.min(
+        100,
+        num(src.expenseGrowthPct, DEFAULT_PROJECTION_SETTINGS.expenseGrowthPct),
+      ),
+    );
+    const years = Math.max(
+      1,
+      Math.min(
+        50,
+        Math.round(num(src.years, DEFAULT_PROJECTION_SETTINGS.years)),
+      ),
+    );
+    return { returnsPct, incomeGrowthPct, expenseGrowthPct, years };
+  }
+
   private mapUser(row: QueryResultRow): User {
     return {
       id: row.id,
@@ -576,6 +619,9 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
       picture: row.picture || undefined,
       googleId: row.google_id || undefined,
       createdAt: new Date(row.created_at).toISOString(),
+      projectionSettings: this.normalizeProjectionSettings(
+        row.projection_settings,
+      ),
     };
   }
 
@@ -1398,18 +1444,28 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
         | 'notifyEmail'
         | 'notifyTelegram'
         | 'planId'
+        | 'projectionSettings'
       >
     >,
   ): Promise<User | null> {
     const current = await this.findUserById(id);
     if (!current) return null;
+    // Ignore undefined keys so partial patches (e.g. projection-only) keep
+    // existing profile fields.
+    const cleanPatch = Object.fromEntries(
+      Object.entries(patch).filter(([, v]) => v !== undefined),
+    ) as typeof patch;
     const next = {
       ...current,
-      ...patch,
+      ...cleanPatch,
       telegramChatId:
-        patch.telegramChatId !== undefined
-          ? patch.telegramChatId
+        cleanPatch.telegramChatId !== undefined
+          ? cleanPatch.telegramChatId
           : current.telegramChatId,
+      projectionSettings:
+        cleanPatch.projectionSettings !== undefined
+          ? this.normalizeProjectionSettings(cleanPatch.projectionSettings)
+          : current.projectionSettings || DEFAULT_PROJECTION_SETTINGS,
     };
     await this.query(
       `UPDATE users SET
@@ -1418,7 +1474,8 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
          telegram_chat_id = $4,
          notify_email = $5,
          notify_telegram = $6,
-         plan_id = $7
+         plan_id = $7,
+         projection_settings = $8::jsonb
        WHERE id = $1`,
       [
         id,
@@ -1428,9 +1485,15 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
         next.notifyEmail,
         next.notifyTelegram,
         next.planId,
+        JSON.stringify(next.projectionSettings),
       ],
     );
     return this.findUserById(id);
+  }
+
+  async getProjectionSettings(userId: string): Promise<ProjectionSettings> {
+    const user = await this.findUserById(userId);
+    return user?.projectionSettings || DEFAULT_PROJECTION_SETTINGS;
   }
 
   async listNotifyUsers(): Promise<User[]> {
@@ -1604,6 +1667,90 @@ export class StoreService implements OnModuleInit, OnModuleDestroy {
       'SELECT COUNT(*)::text AS count FROM tickers',
     );
     return Number(rows[0]?.count || 0);
+  }
+
+  /**
+   * Fast bulk sync for NSE master list. Preserves prices and admin inclusion
+   * flags; updates name/sector/industry/isin/active for existing rows.
+   */
+  async bulkUpsertListedTickers(
+    stocks: {
+      symbol: string;
+      name: string;
+      sector?: string;
+      industry?: string;
+      isin?: string;
+      exchange?: 'NSE' | 'BSE';
+    }[],
+  ): Promise<{ created: number; updated: number }> {
+    if (!stocks.length) return { created: 0, updated: 0 };
+
+    const existing = await this.query<{
+      symbol: string;
+      exchange: string;
+    }>(`SELECT upper(symbol) AS symbol, exchange FROM tickers`);
+    const existingKeys = new Set(
+      existing.rows.map((r) => `${r.symbol}|${r.exchange}`),
+    );
+
+    let created = 0;
+    let updated = 0;
+    const chunkSize = 200;
+    const stamp = new Date().toISOString();
+
+    for (let i = 0; i < stocks.length; i += chunkSize) {
+      const chunk = stocks.slice(i, i + chunkSize);
+      const values: unknown[] = [];
+      const placeholders: string[] = [];
+
+      chunk.forEach((stock, idx) => {
+        const symbol = stock.symbol.toUpperCase();
+        const exchange = stock.exchange || 'NSE';
+        const key = `${symbol}|${exchange}`;
+        if (existingKeys.has(key)) updated += 1;
+        else {
+          created += 1;
+          existingKeys.add(key);
+        }
+
+        const o = idx * 9;
+        placeholders.push(
+          `($${o + 1},$${o + 2},$${o + 3},$${o + 4},$${o + 5},$${o + 6},$${o + 7},$${o + 8},TRUE,FALSE,FALSE,$${o + 9})`,
+        );
+        values.push(
+          uuid(),
+          `FG-T-${symbol}`,
+          symbol,
+          exchange,
+          stock.name || symbol,
+          stock.sector || 'Other',
+          stock.industry || 'Equity',
+          stock.isin || null,
+          stamp,
+        );
+      });
+
+      await this.query(
+        `INSERT INTO tickers (
+           id, crn, symbol, exchange, name, sector, industry, isin,
+           active, include_in_screener, include_in_announcements, updated_at
+         ) VALUES ${placeholders.join(',')}
+         ON CONFLICT (symbol, exchange) DO UPDATE SET
+           name = EXCLUDED.name,
+           sector = CASE
+             WHEN tickers.sector IS NULL OR tickers.sector = '' OR tickers.sector = 'Other'
+             THEN EXCLUDED.sector ELSE tickers.sector END,
+           industry = CASE
+             WHEN tickers.industry IS NULL OR tickers.industry = '' OR tickers.industry = 'Other'
+             THEN EXCLUDED.industry ELSE tickers.industry END,
+           isin = COALESCE(EXCLUDED.isin, tickers.isin),
+           active = TRUE,
+           updated_at = EXCLUDED.updated_at`,
+        values,
+      );
+    }
+
+    return { created, updated };
   }
 
   async updateTickerInclusion(

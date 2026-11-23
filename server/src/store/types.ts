@@ -49,11 +49,34 @@ export interface NetWorthProjection {
   monthlyEmi: number;
   monthlySip: number;
   monthlySurplus: number;
+  /** Assumed annual return applied to current + future investments. */
+  annualGrowthPct?: number;
+  incomeGrowthPct?: number;
+  expenseGrowthPct?: number;
   breakdown: {
     label: string;
     amount: number;
   }[];
 }
+
+/** Per-user assumptions used by Dashboard net-worth projections. */
+export interface ProjectionSettings {
+  /** Annual return applied to current + future investments. */
+  returnsPct: number;
+  /** Annual growth applied to recurring income. */
+  incomeGrowthPct: number;
+  /** Annual growth applied to recurring expenses. */
+  expenseGrowthPct: number;
+  /** Projection horizon in years. */
+  years: number;
+}
+
+export const DEFAULT_PROJECTION_SETTINGS: ProjectionSettings = {
+  returnsPct: 15,
+  incomeGrowthPct: 0,
+  expenseGrowthPct: 0,
+  years: 10,
+};
 
 export interface User {
   id: string;
@@ -69,6 +92,7 @@ export interface User {
   picture?: string;
   googleId?: string;
   createdAt: string;
+  projectionSettings?: ProjectionSettings;
 }
 
 export interface AppSetting {

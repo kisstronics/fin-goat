@@ -231,50 +231,28 @@ export class MarketService {
    */
   async syncAllTickers() {
     const listing = await fetchNseEquityUniverse();
-    const created: string[] = [];
-    const updated: string[] = [];
-    const failed: { symbol: string; error: string }[] = [];
+    this.logger.log(
+      `Syncing ${listing.stocks.length} NSE symbols (${listing.source})`,
+    );
 
-    for (const stock of listing.stocks) {
-      try {
-        const existing = await this.store.findTickerBySymbol(
-          stock.symbol,
-          'NSE',
-        );
-        if (existing) {
-          await this.store.upsertTicker({
-            id: existing.id,
-            symbol: stock.symbol,
-            name: stock.name || existing.name,
-            sector: stock.sector || existing.sector,
-            industry: stock.industry || existing.industry,
-            isin: stock.isin || existing.isin,
-            exchange: 'NSE',
-            active: true,
-          });
-          updated.push(stock.symbol);
-        } else {
-          await this.store.upsertTicker({
-            symbol: stock.symbol,
-            name: stock.name,
-            sector: stock.sector,
-            industry: stock.industry,
-            isin: stock.isin,
-            exchange: 'NSE',
-            active: true,
-            price: 0,
-            prevClose: 0,
-          });
-          created.push(stock.symbol);
-        }
-      } catch (err) {
-        failed.push({
-          symbol: stock.symbol,
-          error: err instanceof Error ? err.message : 'upsert failed',
-        });
-      }
-    }
+    const before = await this.store.countTickers();
+    const result = await this.store.bulkUpsertListedTickers(
+      listing.stocks.map((s) => ({
+        symbol: s.symbol,
+        name: s.name,
+        sector: s.sector,
+        industry: s.industry,
+        isin: s.isin,
+        exchange: 'NSE' as const,
+      })),
+    );
+    const after = await this.store.countTickers();
+    this.logger.log(
+      `Ticker sync done: created ${result.created}, updated ${result.updated}, db ${before} → ${after}`,
+    );
 
+    // Only refresh prices for newly created names in the background so the
+    // admin request returns quickly; full refresh remains available separately.
     void this.refreshAllPrices()
       .then((priced) => {
         this.logger.log(
@@ -295,9 +273,10 @@ export class MarketService {
 
     return {
       universeSize: listing.stocks.length,
-      created: created.length,
-      updated: updated.length,
-      createdSymbols: created.slice(0, 50),
+      created: result.created,
+      updated: result.updated,
+      totalInDb: after,
+      createdSymbols: listing.stocks.slice(0, 50).map((s) => s.symbol),
       priceRefresh: {
         attempted: 0,
         updated: 0,
@@ -305,7 +284,7 @@ export class MarketService {
         status: 'started_in_background' as const,
         note: 'LTP refresh + 1Y history backfill started in background (batched).',
       },
-      failed,
+      failed: [] as { symbol: string; error: string }[],
       source: listing.source,
       fallback: listing.fallback,
       syncedAt: new Date().toISOString(),

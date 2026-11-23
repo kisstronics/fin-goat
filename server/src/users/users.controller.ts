@@ -32,6 +32,12 @@ export class UsersController {
       notifyEmail: boolean;
       notifyTelegram: boolean;
       planId: User['planId'];
+      projection: Partial<{
+        returnsPct: number;
+        incomeGrowthPct: number;
+        expenseGrowthPct: number;
+        years: number;
+      }>;
     }>,
   ) {
     return this.users.updateSettings(req.user.id, body);

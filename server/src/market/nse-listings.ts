@@ -13,7 +13,12 @@ const EQUITY_SERIES = new Set(['EQ', 'BE', 'BZ', 'SM', 'ST', 'IV', 'RR']);
 const CSV_URLS = [
   'https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv',
   'https://archives.nseindia.com/content/equities/EQUITY_L.csv',
+  'https://www.nseindia.com/content/equities/EQUITY_L.csv',
 ];
+
+const UNIVERSE_BY_SYMBOL = new Map(
+  NSE_UNIVERSE.map((s) => [s.symbol.toUpperCase(), s] as const),
+);
 
 function nseHeaders(cookie = '') {
   return {
@@ -102,7 +107,7 @@ function parseEquityCsv(text: string): ListedStock[] {
     const existing = bySymbol.get(symbol);
     if (existing && series !== 'EQ') continue;
 
-    const meta = NSE_UNIVERSE.find((s) => s.symbol === symbol);
+    const meta = UNIVERSE_BY_SYMBOL.get(symbol);
     bySymbol.set(symbol, {
       symbol,
       name: (nameIdx >= 0 ? cols[nameIdx] : '') || meta?.name || symbol,
@@ -116,21 +121,29 @@ function parseEquityCsv(text: string): ListedStock[] {
   );
 }
 
-function loadBundledEquityCsv(): ListedStock[] {
-  const candidates = [
+function bundledCsvCandidates(): string[] {
+  return [
     join(__dirname, 'data', 'EQUITY_L.csv'),
     join(process.cwd(), 'src', 'market', 'data', 'EQUITY_L.csv'),
     join(process.cwd(), 'dist', 'market', 'data', 'EQUITY_L.csv'),
+    join(process.cwd(), 'server', 'src', 'market', 'data', 'EQUITY_L.csv'),
+    join(process.cwd(), 'server', 'dist', 'market', 'data', 'EQUITY_L.csv'),
   ];
-  for (const path of candidates) {
+}
+
+function loadBundledEquityCsv(): ListedStock[] {
+  for (const path of bundledCsvCandidates()) {
     if (!existsSync(path)) continue;
     try {
       const text = readFileSync(path, 'utf8');
       const stocks = parseEquityCsv(text);
-      if (stocks.length > 200) {
+      if (stocks.length > 500) {
         logger.log(`Loaded ${stocks.length} NSE equities from bundled ${path}`);
         return stocks;
       }
+      logger.warn(
+        `Bundled CSV at ${path} only had ${stocks.length} symbols — skipping`,
+      );
     } catch (err) {
       logger.warn(
         `Bundled CSV read failed (${path}): ${err instanceof Error ? err.message : err}`,
@@ -146,6 +159,10 @@ export async function fetchNseEquityUniverse(): Promise<{
   source: string;
   fallback: boolean;
 }> {
+  // Prefer the known-good local master list first so sync is fast and reliable
+  // even when NSE blocks scrapers (403). Refresh from live when available.
+  const bundled = loadBundledEquityCsv();
+
   const cookie = await warmCookie();
   for (const url of CSV_URLS) {
     try {
@@ -159,7 +176,7 @@ export async function fetchNseEquityUniverse(): Promise<{
       }
       const text = await res.text();
       const stocks = parseEquityCsv(text);
-      if (stocks.length > 200) {
+      if (stocks.length > 500) {
         logger.log(`Loaded ${stocks.length} NSE equities from ${url}`);
         return {
           stocks,
@@ -177,8 +194,7 @@ export async function fetchNseEquityUniverse(): Promise<{
     }
   }
 
-  const bundled = loadBundledEquityCsv();
-  if (bundled.length > 200) {
+  if (bundled.length > 500) {
     return {
       stocks: bundled,
       source: `Bundled NSE EQUITY_L.csv (${bundled.length} symbols)`,

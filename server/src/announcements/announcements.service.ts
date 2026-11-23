@@ -280,8 +280,37 @@ export class AnnouncementsService {
         });
       }
       if (user.notifyTelegram && user.telegramChatId) {
-        const message = `${title}\n\n${body}`;
-        const sent = await this.telegram.sendMessage(
+        const e = (v: string) => this.telegram.escapeHtml(v);
+        const subject = announcement.subject || 'Corporate announcement';
+        const when = announcement.announcedAt
+          ? new Date(announcement.announcedAt).toLocaleString('en-IN')
+          : '';
+        const excerpt = (announcement.body || '').trim().slice(0, 420);
+        const htmlLines: string[] = [
+          `<b>${e(subject)}</b>`,
+        ];
+        if (announcement.companyName) {
+          htmlLines.push(e(announcement.companyName));
+        }
+        if (when) {
+          htmlLines.push(`🕐 ${e(when)}`);
+        }
+        if (excerpt) {
+          htmlLines.push('');
+          htmlLines.push(e(excerpt));
+        }
+        if (announcement.attachmentUrl) {
+          const href = this.telegram.escapeHtml(announcement.attachmentUrl);
+          htmlLines.push('');
+          htmlLines.push(`📎 <a href="${href}">View attachment</a>`);
+        }
+        const message = this.telegram.formatHtmlCard({
+          badge: '📰 NSE filing',
+          title: announcement.symbol,
+          subtitle: 'Corporate announcement · Fin Goat',
+          lines: htmlLines,
+        });
+        const sent = await this.telegram.sendHtml(
           user.telegramChatId,
           message,
         );

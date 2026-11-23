@@ -4,7 +4,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { StoreService } from '../store/store.service';
-import type { PlanId, User } from '../store/types';
+import type { PlanId, ProjectionSettings, User } from '../store/types';
+import { DEFAULT_PROJECTION_SETTINGS } from '../store/types';
 import { TelegramService } from '../telegram/telegram.service';
 
 @Injectable()
@@ -30,6 +31,8 @@ export class UsersService {
         ...telegram,
         linked: Boolean(user.telegramChatId),
       },
+      projection:
+        user.projectionSettings || { ...DEFAULT_PROJECTION_SETTINGS },
     };
   }
 
@@ -40,7 +43,9 @@ export class UsersService {
         User,
         'name' | 'phone' | 'notifyEmail' | 'notifyTelegram' | 'planId'
       >
-    >,
+    > & {
+      projection?: Partial<ProjectionSettings>;
+    },
   ) {
     const next: Partial<
       Pick<
@@ -51,13 +56,24 @@ export class UsersService {
         | 'notifyEmail'
         | 'notifyTelegram'
         | 'planId'
+        | 'projectionSettings'
       >
-    > = {
-      name: patch.name,
-      notifyEmail: patch.notifyEmail,
-      notifyTelegram: patch.notifyTelegram,
-      planId: patch.planId as PlanId | undefined,
-    };
+    > = {};
+
+    if (patch.name !== undefined) next.name = patch.name;
+    if (patch.notifyEmail !== undefined) next.notifyEmail = patch.notifyEmail;
+    if (patch.notifyTelegram !== undefined) {
+      next.notifyTelegram = patch.notifyTelegram;
+    }
+    if (patch.planId !== undefined) next.planId = patch.planId as PlanId;
+
+    if (patch.projection !== undefined) {
+      const current = await this.store.getProjectionSettings(userId);
+      next.projectionSettings = {
+        ...current,
+        ...patch.projection,
+      };
+    }
 
     if (patch.phone !== undefined) {
       const raw = String(patch.phone || '').trim();

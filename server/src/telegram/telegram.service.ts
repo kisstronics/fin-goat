@@ -85,19 +85,72 @@ export class TelegramService implements OnModuleInit {
     return result;
   }
 
+  /** Escape text for Telegram HTML parse mode. */
+  escapeHtml(value: string): string {
+    return String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  /**
+   * Build a compact HTML card for alerts.
+   * Telegram HTML supports b/i/u/s/code/pre/a — keep markup minimal.
+   */
+  formatHtmlCard(opts: {
+    badge?: string;
+    title: string;
+    subtitle?: string;
+    lines?: string[];
+    footer?: string;
+  }): string {
+    const parts: string[] = [];
+    if (opts.badge) {
+      parts.push(`<b>${this.escapeHtml(opts.badge)}</b>`);
+    }
+    parts.push(`<b>${this.escapeHtml(opts.title)}</b>`);
+    if (opts.subtitle) {
+      parts.push(`<i>${this.escapeHtml(opts.subtitle)}</i>`);
+    }
+    if (opts.lines?.length) {
+      parts.push('');
+      for (const line of opts.lines) {
+        parts.push(line);
+      }
+    }
+    if (opts.footer) {
+      parts.push('');
+      parts.push(`<i>${this.escapeHtml(opts.footer)}</i>`);
+    }
+    return parts.join('\n').slice(0, 4000);
+  }
+
   async sendMessage(
     chatId: string,
     text: string,
     replyMarkup?: Record<string, unknown>,
+    options?: { parseMode?: 'HTML' | 'MarkdownV2' | 'none' },
   ): Promise<TelegramApiResult> {
     if (!chatId.trim()) {
       return { ok: false, error: 'Missing chat id' };
     }
+    const parseMode = options?.parseMode ?? 'HTML';
     return this.apiCall('sendMessage', {
       chat_id: chatId,
       text: text.slice(0, 4000),
+      parse_mode: parseMode === 'none' ? undefined : parseMode,
+      disable_web_page_preview: true,
       reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined,
     });
+  }
+
+  /** Send a pre-built HTML notification (caller must escape user content). */
+  sendHtml(
+    chatId: string,
+    html: string,
+    replyMarkup?: Record<string, unknown>,
+  ): Promise<TelegramApiResult> {
+    return this.sendMessage(chatId, html, replyMarkup, { parseMode: 'HTML' });
   }
 
   /**
@@ -159,11 +212,16 @@ export class TelegramService implements OnModuleInit {
           'Link Telegram first: save your phone in Settings, send hi to the bot, then share that phone',
       };
     }
-    return this.sendToLinkedPhone(
-      user.phone,
-      `Fin Goat test message ✅\n\nHello ${user.name}. Your Telegram link is working.`,
-      user.telegramChatId,
-    );
+    const html = this.formatHtmlCard({
+      badge: '✅ Fin Goat',
+      title: 'Test message',
+      subtitle: `Hello ${user.name}`,
+      lines: [
+        'Your Telegram link is working.',
+        'Screener, announcement, and expense alerts will arrive here in this format.',
+      ],
+    });
+    return this.sendToLinkedPhone(user.phone, html, user.telegramChatId);
   }
 
   async verifyWebhookSecret(headerValue: string | undefined): Promise<boolean> {
@@ -215,21 +273,28 @@ export class TelegramService implements OnModuleInit {
     if (command === 'hi' || command === '/start' || command === '/help') {
       const existing = await this.store.findUserByTelegramChatId(chatId);
       if (existing) {
-        await this.sendMessage(
+        await this.sendHtml(
           chatId,
-          `You are already linked to Fin Goat as ${existing.name}. Alerts will arrive here.`,
+          this.formatHtmlCard({
+            badge: '🐐 Fin Goat',
+            title: 'Already linked',
+            subtitle: existing.name,
+            lines: ['Alerts will continue to arrive in this chat.'],
+          }),
         );
         return;
       }
-      await this.sendMessage(
+      await this.sendHtml(
         chatId,
-        [
-          'Welcome to Fin Goat.',
-          '',
-          'To link notifications:',
-          '1. Save your Telegram phone number in Fin Goat → Settings',
-          '2. Share that same number here (button below) or type it with country code',
-        ].join('\n'),
+        this.formatHtmlCard({
+          badge: '🐐 Fin Goat',
+          title: 'Welcome',
+          lines: [
+            '<b>Link notifications in 2 steps:</b>',
+            '1. Save your Telegram phone in Fin Goat → Settings',
+            '2. Share that same number here (button below) or type it with country code',
+          ],
+        }),
         {
           keyboard: [[{ text: 'Share phone number', request_contact: true }]],
           resize_keyboard: true,
@@ -239,9 +304,15 @@ export class TelegramService implements OnModuleInit {
       return;
     }
 
-    await this.sendMessage(
+    await this.sendHtml(
       chatId,
-      'Send hi to start linking, or share the phone number you saved in Fin Goat Settings.',
+      this.formatHtmlCard({
+        badge: '🐐 Fin Goat',
+        title: 'How to link',
+        lines: [
+          'Send <b>hi</b> to start, or share the phone number you saved in Settings.',
+        ],
+      }),
     );
   }
 
@@ -270,9 +341,13 @@ export class TelegramService implements OnModuleInit {
     privateChat: boolean,
   ) {
     if (!privateChat) {
-      await this.sendMessage(
+      await this.sendHtml(
         chatId,
-        'Linking only works in a private chat with the bot.',
+        this.formatHtmlCard({
+          badge: '🐐 Fin Goat',
+          title: 'Private chat required',
+          lines: ['Linking only works in a private chat with the bot.'],
+        }),
       );
       return;
     }
@@ -280,18 +355,32 @@ export class TelegramService implements OnModuleInit {
     try {
       phone = this.normalizePhone(rawPhone);
     } catch {
-      await this.sendMessage(
+      await this.sendHtml(
         chatId,
-        'Could not read that phone number. Use country code, e.g. +9198XXXXXXXX.',
+        this.formatHtmlCard({
+          badge: '🐐 Fin Goat',
+          title: 'Invalid phone',
+          lines: [
+            'Could not read that number.',
+            'Use country code, e.g. <code>+9198XXXXXXXX</code>.',
+          ],
+        }),
       );
       return;
     }
 
     const user = await this.store.findUserByPhone(phone);
     if (!user) {
-      await this.sendMessage(
+      await this.sendHtml(
         chatId,
-        'No Fin Goat account has that phone yet. Save it under Settings, then share it here again.',
+        this.formatHtmlCard({
+          badge: '🐐 Fin Goat',
+          title: 'Phone not found',
+          lines: [
+            'No Fin Goat account has that phone yet.',
+            'Save it under <b>Settings</b>, then share it here again.',
+          ],
+        }),
         { remove_keyboard: true },
       );
       return;
@@ -303,9 +392,16 @@ export class TelegramService implements OnModuleInit {
       notifyTelegram: true,
     });
 
-    await this.sendMessage(
+    await this.sendHtml(
       chatId,
-      `Linked to Fin Goat (${user.name}). You will receive screener alerts here.`,
+      this.formatHtmlCard({
+        badge: '✅ Linked',
+        title: 'Fin Goat connected',
+        subtitle: user.name,
+        lines: [
+          'You will receive screener, announcement, and expense alerts here.',
+        ],
+      }),
       { remove_keyboard: true },
     );
   }

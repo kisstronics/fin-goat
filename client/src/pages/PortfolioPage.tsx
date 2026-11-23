@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { api } from '../api';
+import { RecurringPanel } from '../components/RecurringPanel';
 import {
   assetLabel,
   formatInr,
@@ -33,7 +35,7 @@ const LOAN_TYPES = [
 ] as const;
 
 type LoanType = (typeof LOAN_TYPES)[number];
-type PortfolioTab = 'investments' | 'loans';
+type PortfolioTab = 'investments' | 'loans' | 'income' | 'expense';
 type SortKey =
   | 'name'
   | 'type'
@@ -43,20 +45,42 @@ type SortKey =
   | 'updatedAt';
 
 const PAGE_SIZES = [10, 25, 50];
+const PORTFOLIO_TABS: PortfolioTab[] = [
+  'investments',
+  'loans',
+  'income',
+  'expense',
+];
+
+function parseTab(raw: string | null): PortfolioTab {
+  if (raw && PORTFOLIO_TABS.includes(raw as PortfolioTab)) {
+    return raw as PortfolioTab;
+  }
+  return 'investments';
+}
 
 export function PortfolioPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [error, setError] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [entryKind, setEntryKind] = useState<'investment' | 'loan'>('investment');
-  const [tab, setTab] = useState<PortfolioTab>('investments');
+  const [tab, setTab] = useState<PortfolioTab>(() =>
+    parseTab(searchParams.get('tab')),
+  );
+  const [recurringCounts, setRecurringCounts] = useState({
+    income: 0,
+    expense: 0,
+  });
   const [query, setQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [sortKey, setSortKey] = useState<SortKey>('updatedAt');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+
+  const isRecurringTab = tab === 'income' || tab === 'expense';
   const [form, setForm] = useState({
     assetType: 'mutual_fund' as AssetType,
     loanType: 'home' as LoanType,
@@ -214,11 +238,16 @@ export function PortfolioPage() {
 
   function switchTab(next: PortfolioTab) {
     setTab(next);
+    setShowForm(false);
     setQuery('');
     setTypeFilter('all');
     setPage(1);
     setSortKey('updatedAt');
     setSortDir('desc');
+    setSearchParams(
+      next === 'investments' ? {} : { tab: next },
+      { replace: true },
+    );
   }
 
   async function load() {
@@ -232,6 +261,26 @@ export function PortfolioPage() {
   useEffect(() => {
     void load();
   }, []);
+
+  useEffect(() => {
+    const next = parseTab(searchParams.get('tab'));
+    setTab(next);
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (isRecurringTab) return;
+    void api
+      .recurring()
+      .then((data) => {
+        setRecurringCounts({
+          income: data.items.filter((i) => i.kind === 'income').length,
+          expense: data.items.filter((i) => i.kind === 'expense').length,
+        });
+      })
+      .catch(() => {
+        // Counts are decorative; ignore failures here.
+      });
+  }, [isRecurringTab, holdings.length]);
 
   function resetForm(kind: 'investment' | 'loan' = 'investment') {
     setEntryKind(kind);
@@ -399,8 +448,33 @@ export function PortfolioPage() {
         >
           Loans ({loans.length})
         </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'income'}
+          className={`chip${tab === 'income' ? ' active' : ''}`}
+          onClick={() => switchTab('income')}
+        >
+          Income ({recurringCounts.income})
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'expense'}
+          className={`chip${tab === 'expense' ? ' active' : ''}`}
+          onClick={() => switchTab('expense')}
+        >
+          Expenses ({recurringCounts.expense})
+        </button>
       </div>
 
+      {isRecurringTab ? (
+        <RecurringPanel
+          kind={tab}
+          onCountsChange={setRecurringCounts}
+        />
+      ) : (
+        <>
       <div className="ticker-actions">
         <button
           type="button"
@@ -946,6 +1020,8 @@ export function PortfolioPage() {
           </tbody>
         </table>
       </div>
+        </>
+      )}
     </div>
   );
 }

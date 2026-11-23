@@ -176,6 +176,7 @@ export class ScreenersService {
           return `${t?.symbol || r.tickerId}: ${r.reason}`;
         })
         .join('\n');
+      const more = fresh.length - digest.length;
 
       let delivered = false;
 
@@ -206,8 +207,36 @@ export class ScreenersService {
       }
       if (user.notifyTelegram && user.telegramChatId) {
         const title = 'Fin Goat screener alert';
-        const message = `${title}\n\n${body}`;
-        const sent = await this.telegram.sendMessage(
+        const e = (v: string) => this.telegram.escapeHtml(v);
+        const htmlLines = digest.map((r) => {
+          const t = byId.get(r.tickerId);
+          const symbol = e(t?.symbol || r.tickerId);
+          const name = t?.name ? ` · ${e(t.name)}` : '';
+          const screenerName = e(
+            SCREENER_META[r.screener]?.name || r.screener,
+          );
+          const reason = e(r.reason);
+          const price =
+            t && Number.isFinite(t.price) && t.price > 0
+              ? `  ₹${Math.round(t.price).toLocaleString('en-IN')}`
+              : '';
+          return [
+            `• <b>${symbol}</b>${name}${price}`,
+            `  <i>${screenerName}</i>`,
+            `  ${reason}`,
+          ].join('\n');
+        });
+        if (more > 0) {
+          htmlLines.push(`• <i>+${more} more match${more === 1 ? '' : 'es'}</i>`);
+        }
+        const message = this.telegram.formatHtmlCard({
+          badge: '📊 Screener',
+          title: 'New matches',
+          subtitle: `${fresh.length} update${fresh.length === 1 ? '' : 's'} · Fin Goat`,
+          lines: htmlLines,
+          footer: 'Open Fin Goat → Market for full details',
+        });
+        const sent = await this.telegram.sendHtml(
           user.telegramChatId,
           message,
         );

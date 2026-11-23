@@ -1008,6 +1008,17 @@ label {
   color: var(--accent);
 }
 
+.hero-metric-grid {
+  display: grid;
+  gap: 0.75rem;
+}
+
+@media (min-width: 720px) {
+  .hero-metric-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
 .hero-metric {
   padding: 1.25rem 1.1rem;
   border-radius: 18px;
@@ -1017,11 +1028,41 @@ label {
   border: 1px solid var(--line);
 }
 
+.hero-metric.projection-hero {
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent) 10%, transparent), transparent 55%),
+    var(--surface);
+}
+
 .hero-value {
   margin: 0.2rem 0 0.45rem;
   font-family: 'Fraunces', Georgia, serif;
   font-size: clamp(2rem, 8vw, 2.6rem);
   line-height: 1;
+}
+
+.growth-field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin: 0.55rem 0 0.35rem;
+  font-size: 0.85rem;
+}
+
+.growth-input-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.growth-input-wrap input[type='number'] {
+  width: 4.5rem;
+  min-width: 4.5rem;
+  padding: 0.35rem 0.45rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .stat-grid {
